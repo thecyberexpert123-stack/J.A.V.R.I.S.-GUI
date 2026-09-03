@@ -1,7 +1,13 @@
 # J.A.V.R.I.S. GUI — Delivery Plan
 
 Owner: engineering (agent, acting as senior front-end/full-stack).
-Status: **awaiting stakeholder sign-off. No product code written yet.**
+Status: **M0 approved; M1-M6 implemented and verified.**
+Stakeholder decisions (2026-09-03): Qt 6 / QML confirmed on the basis of animation and
+performance; v1 scope = HUD shell with real local telemetry; Python/PySide6 backend.
+A hybrid multi-toolkit approach was considered and **declined**: Qt Quick already
+covers the animation and GPU requirements, so a second stack would add complexity
+without a requirement to justify it. Recorded as a revisit point if custom shaders
+ever demand it.
 Evidence base: [`docs/RESEARCH.md`](./RESEARCH.md).
 
 ---
@@ -87,13 +93,13 @@ telemetry is testable against fixture files with **zero** real `/proc` access.
 
 | M | Deliverable | Acceptance |
 |---|---|---|
-| **M0** | Research + plan + governance docs *(this commit)* | You sign off on stack + scope |
-| **M1** | Repo skeleton, tooling, CI config, `Theme.qml` design-token system, LICENSE/notices | `ruff`/`mypy`/`qmllint` pass on an empty-but-real tree |
-| **M2** | `ProcReader` + `TelemetryService` + full unit tests against fixtures | ≥90 % coverage on parsers; malformed-input tests pass |
-| **M3** | `HudController` + assistant state machine + transition tests | Illegal transitions provably rejected |
-| **M4** | HUD shell, boot sequence, ReactorCore, Gauge, Panel, TelemetryRow | Headless render produces the frame; qmllint clean |
-| **M5** | Modes (R2), LogStream, CommandRouter (R6), failure states (R7) | Every failure mode in R7 demonstrated by a test |
-| **M6** | Packaging, README, run instructions, final self-review | `pip install -e .` then one command launches it |
+| **M0** | Research + plan + governance docs | **Done** - stack and scope signed off |
+| **M1** | Repo skeleton, tooling, CI config, `Theme.qml` design-token system, LICENSE/notices | **Done** - `ruff`/`mypy`/`qmllint` pass on an empty-but-real tree |
+| **M2** | `ProcReader` + `TelemetryService` + full unit tests against fixtures | **Done** - ≥90 % coverage on parsers; malformed-input tests pass |
+| **M3** | `HudController` + assistant state machine + transition tests | **Done** - Illegal transitions provably rejected |
+| **M4** | HUD shell, boot sequence, ReactorCore, Gauge, Panel, TelemetryRow | **Done** - Headless render produces the frame; qmllint clean |
+| **M5** | Modes (R2), LogStream, CommandRouter (R6), failure states (R7) | **Done** - Every failure mode in R7 demonstrated by a test |
+| **M6** | Packaging, README, run instructions, final self-review | **Done** - `pip install -e .` then one command launches it |
 
 ## 6. Risks and mitigations
 
@@ -154,7 +160,26 @@ M1–M2 vertical slice, smallest thing that is genuinely real end to end:
 Only step 6 is proven to work in this sandbox today (`VERIFIED-LOCAL`, RESEARCH §3.2).
 Everything else is designed but unwritten.
 
-## 10. Sign-off gate
+## 10. Sign-off gate — CLEARED
 
-Per Guidelines 9 and 20, **no product code is written until you confirm**: the toolkit
-(§3), the v1 scope boundary (§1.2 / §1.3), and Python vs C++ for the backend.
+The toolkit, scope boundary and backend language were confirmed by the stakeholder on
+2026-09-03, and implementation proceeded on that basis.
+
+## 11. Delivered vs. planned
+
+All of R1-R8 are implemented. Deviations from the plan, and why:
+
+- **No `Loader` for mode switching.** A `Loader` evaluates a component's bindings
+  before applying initial properties, so a required `controller` reads as null on the
+  first pass. Both modes are instantiated and cross-faded instead: simpler, and it
+  removes the failure mode entirely.
+- **A registered QML singleton replaces context properties.** Context properties are
+  invisible to `qmllint`; the singleton, plus a generated `.qmltypes` description,
+  brings the linter to zero warnings and gives it real type information.
+- **`Hud.qml` is now `HudSurface.qml`**, because `Hud` names the singleton.
+- **No custom shaders**, as planned: `pyside6-qsb` is broken in this environment, so
+  glow is produced with layered `Shape` strokes.
+
+Verification status is recorded honestly in `CHANGELOG.md` and `AGENT-EXPERIENCE.md`:
+the full gate passes, and nothing has been tested on real GPU hardware or measured for
+frame rate.

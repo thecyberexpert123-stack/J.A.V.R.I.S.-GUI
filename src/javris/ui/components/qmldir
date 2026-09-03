@@ -1,0 +1,7 @@
+module javris.ui.components
+Panel 1.0 Panel.qml
+Gauge 1.0 Gauge.qml
+ReactorCore 1.0 ReactorCore.qml
+TelemetryRow 1.0 TelemetryRow.qml
+LogStream 1.0 LogStream.qml
+HudGrid 1.0 HudGrid.qml
