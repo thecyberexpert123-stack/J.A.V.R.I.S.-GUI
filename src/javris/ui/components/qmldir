@@ -5,3 +5,5 @@ ReactorCore 1.0 ReactorCore.qml
 TelemetryRow 1.0 TelemetryRow.qml
 LogStream 1.0 LogStream.qml
 HudGrid 1.0 HudGrid.qml
+TargetReticle 1.0 TargetReticle.qml
+AlertBanner 1.0 AlertBanner.qml

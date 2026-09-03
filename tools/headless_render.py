@@ -28,9 +28,36 @@ UI_ROOT = SRC_ROOT / "javris" / "ui"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from javris.attention import RAISE_SAMPLES  # noqa: E402
 from javris.controller import HudController  # noqa: E402
 from javris.qmlregistration import register_controller  # noqa: E402
+from javris.telemetry.models import MemorySnapshot, TelemetrySnapshot  # noqa: E402
 from javris.telemetry.service import TelemetrySampler  # noqa: E402
+
+
+class _SaturatedSampler:
+    """A review-only sampler reporting memory at 96%.
+
+    This exists solely so the attention-escalation overlay can be photographed
+    for the documentation on a machine that is not actually under load. It is
+    a developer tool and is never reachable from the application: the shipped
+    HUD only ever renders real readings from :class:`TelemetrySampler`.
+    """
+
+    def sample(self) -> TelemetrySnapshot:
+        total = 8 * 1024**3
+        return TelemetrySnapshot(
+            monotonic_time=0.0,
+            cpu_total_percent=12.0,
+            cpu_core_percents=(9.0, 15.0),
+            memory=MemorySnapshot(
+                total=total,
+                available=int(total * 0.04),
+                swap_total=0,
+                swap_free=0,
+            ),
+            uptime_seconds=7_320.0,
+        )
 
 
 def render(
@@ -40,6 +67,7 @@ def render(
     settle_ms: int,
     mode: str | None = None,
     state: str | None = None,
+    simulate_alert: bool = False,
 ) -> int:
     """Load the HUD offscreen and save a frame. Returns a process exit code."""
     QCoreApplication.setAttribute(  # Software rasteriser: no GPU in CI.
@@ -47,7 +75,8 @@ def render(
     )
     app = QGuiApplication(sys.argv)
 
-    controller = HudController(sampler=TelemetrySampler(), interval_ms=200)
+    sampler = _SaturatedSampler() if simulate_alert else TelemetrySampler()
+    controller = HudController(sampler=sampler, interval_ms=200)
     controller.set_windowed(True)
     register_controller(controller)
 
@@ -74,6 +103,12 @@ def render(
         # Walk the legal path out of BOOTING before forcing the target state.
         controller.requestState("STANDBY")
         controller.requestState(state)
+
+    if simulate_alert:
+        # Escalation requires a sustained condition by design, so drive enough
+        # polls for the policy to raise rather than waiting out real time.
+        for _ in range(RAISE_SAMPLES):
+            controller._poll()  # Private on purpose: review tool, not app code.
 
     exit_code = 0
 
@@ -117,13 +152,27 @@ def main() -> int:
     )
     parser.add_argument("--state", default=None, help="Force an assistant state, e.g. PROCESSING.")
     parser.add_argument(
+        "--simulate-alert",
+        action="store_true",
+        help="Review only: feed a synthetic saturated reading so the "
+        "attention-escalation overlay can be captured. Never used by the app.",
+    )
+    parser.add_argument(
         "--settle",
         type=int,
         default=2500,
         help="Milliseconds to wait before capturing, so animations settle.",
     )
     args = parser.parse_args()
-    return render(args.output, args.width, args.height, args.settle, args.mode, args.state)
+    return render(
+        args.output,
+        args.width,
+        args.height,
+        args.settle,
+        args.mode,
+        args.state,
+        args.simulate_alert,
+    )
 
 
 if __name__ == "__main__":

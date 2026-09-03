@@ -31,10 +31,18 @@ Module {
         Property { name: "disks"; type: "QVariantList"; read: "disks"; index: 15; isReadonly: true; notify: "snapshotChanged" }
         Property { name: "degraded"; type: "bool"; read: "degraded"; index: 16; isReadonly: true; notify: "snapshotChanged" }
         Property { name: "degradedText"; type: "QString"; read: "degradedText"; index: 17; isReadonly: true; notify: "snapshotChanged" }
+        Property { name: "alertActive"; type: "bool"; read: "alertActive"; index: 18; isReadonly: true; notify: "alertChanged" }
+        Property { name: "alertLabel"; type: "QString"; read: "alertLabel"; index: 19; isReadonly: true; notify: "alertChanged" }
+        Property { name: "alertReadout"; type: "QString"; read: "alertReadout"; index: 20; isReadonly: true; notify: "alertChanged" }
+        Property { name: "alertUnit"; type: "QString"; read: "alertUnit"; index: 21; isReadonly: true; notify: "alertChanged" }
+        Property { name: "alertAdvice"; type: "QString"; read: "alertAdvice"; index: 22; isReadonly: true; notify: "alertChanged" }
+        Property { name: "alertSeverity"; type: "QString"; read: "alertSeverity"; index: 23; isReadonly: true; notify: "alertChanged" }
+        Property { name: "alertFraction"; type: "double"; read: "alertFraction"; index: 24; isReadonly: true; notify: "alertChanged" }
         Signal { name: "stateChanged" }
         Signal { name: "modeChanged" }
         Signal { name: "snapshotChanged" }
         Signal { name: "logChanged" }
+        Signal { name: "alertChanged" }
         Signal { name: "shutdownRequested" }
         Method { name: "start"; type: "void" }
         Method { name: "stop"; type: "void" }

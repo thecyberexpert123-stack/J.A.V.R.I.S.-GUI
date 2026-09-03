@@ -25,7 +25,20 @@ anything the kernel will not report is shown as unavailable rather than faked.
 - **Honest failure behaviour.** A missing sensor, an unreadable `/proc` node or a
   container with no thermal zone degrades to a labelled `--` and a console warning.
   The HUD never displays an invented number.
+- **Attention escalation — the HUD interrupts you.** A peripheral gauge cannot capture
+  attention, so when a metric goes critical while it is *not* already centre-stage, the
+  condition is promoted into the middle of the display and everything else dims. It
+  requires a sustained breach, applies hysteresis so it cannot flap, and escalates one
+  thing at a time. This is the behaviour that makes it an assistant rather than a
+  dashboard; the reasoning and citations are in [`docs/RESEARCH.md`](docs/RESEARCH.md)
+  §7. There is **no eye tracking** — the documented substitute is whether the metric is
+  already central in the active mode.
 - **Console with allow-listed commands.** No shell execution, no network, no secrets.
+
+![Attention escalation](docs/images/hud-alert.png)
+
+*A sustained memory-pressure condition escalated into the main display. The header
+agrees with the banner, and the rest of the HUD recedes rather than competing.*
 
 ## Requirements
 

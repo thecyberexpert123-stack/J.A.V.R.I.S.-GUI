@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtCore import QCoreApplication
 
+from javris.attention import RAISE_SAMPLES
 from javris.controller import (
     HudController,
     format_bytes,
@@ -19,6 +20,7 @@ from javris.controller import (
     format_rate,
 )
 from javris.state import AssistantState, InvalidTransitionError
+from javris.telemetry.models import DiskUsage, MemorySnapshot, TelemetrySnapshot
 from javris.telemetry.proc_reader import ProcReader
 from javris.telemetry.service import MIN_INTERVAL_MS, TelemetrySampler
 
@@ -274,3 +276,117 @@ def test_disks_property_shape(controller: HudController) -> None:
     for disk in controller.disks:
         assert set(disk) == {"mount", "fraction", "text"}
         assert 0.0 <= float(disk["fraction"]) <= 1.0
+
+
+# -- attention escalation ---------------------------------------------------
+
+
+class StubSampler:
+    """A sampler returning a snapshot the test dictates."""
+
+    def __init__(self, snapshot: TelemetrySnapshot) -> None:
+        self.snapshot = snapshot
+
+    def sample(self) -> TelemetrySnapshot:
+        return self.snapshot
+
+
+def snapshot_with(
+    cpu: float | None = 1.0,
+    memory_used_fraction: float = 0.05,
+    disks: tuple[DiskUsage, ...] = (),
+) -> TelemetrySnapshot:
+    """Build a snapshot with the memory fraction the caller asks for."""
+    total = 1_000_000
+    return TelemetrySnapshot(
+        monotonic_time=0.0,
+        cpu_total_percent=cpu,
+        memory=MemorySnapshot(
+            total=total,
+            available=int(total * (1.0 - memory_used_fraction)),
+            swap_total=0,
+            swap_free=0,
+        ),
+        disks=disks,
+    )
+
+
+def poll(controller: HudController, times: int) -> None:
+    """Drive the controller's polling loop directly, without a timer."""
+    for _ in range(times):
+        controller._poll()  # Private on purpose: this is the polling path.
+
+
+class TestAttentionIntegration:
+    def test_calm_system_escalates_nothing(self) -> None:
+        controller = HudController(sampler=StubSampler(snapshot_with()))
+        poll(controller, RAISE_SAMPLES + 2)
+        assert controller.alertActive is False
+        assert controller.alertSeverity == ""
+        assert controller.alertFraction == pytest.approx(-1.0)
+
+    def test_sustained_memory_pressure_is_escalated(self) -> None:
+        # Memory is peripheral in MONITOR mode, so it is escalatable there.
+        controller = HudController(sampler=StubSampler(snapshot_with(memory_used_fraction=0.96)))
+        controller.cycleMode()
+        assert controller.mode == "MONITOR"
+        poll(controller, RAISE_SAMPLES)
+        assert controller.alertActive is True
+        assert controller.alertLabel == "Memory pressure"
+        assert controller.alertSeverity == "CRITICAL"
+        assert controller.alertUnit == "%"
+        assert controller.alertFraction == pytest.approx(0.96, abs=1e-3)
+
+    def test_metric_central_in_this_mode_is_not_escalated(self) -> None:
+        # DIAGNOSTICS shows memory as a large central gauge already.
+        controller = HudController(sampler=StubSampler(snapshot_with(memory_used_fraction=0.96)))
+        assert controller.mode == "DIAGNOSTICS"
+        poll(controller, RAISE_SAMPLES + 2)
+        assert controller.alertActive is False
+
+    def test_switching_mode_reevaluates_immediately(self) -> None:
+        controller = HudController(sampler=StubSampler(snapshot_with(memory_used_fraction=0.96)))
+        controller.cycleMode()
+        poll(controller, RAISE_SAMPLES)
+        assert controller.alertActive is True
+
+        # Back to DIAGNOSTICS, where memory is central: released on the spot,
+        # without waiting for another poll.
+        controller.cycleMode()
+        assert controller.mode == "DIAGNOSTICS"
+        assert controller.alertActive is False
+
+    def test_escalation_announces_itself_on_the_console(self) -> None:
+        controller = HudController(sampler=StubSampler(snapshot_with(memory_used_fraction=0.96)))
+        controller.cycleMode()
+        poll(controller, RAISE_SAMPLES)
+        assert any("Memory pressure at" in line for line in controller.log)
+
+    def test_console_is_not_flooded_while_the_alert_persists(self) -> None:
+        controller = HudController(sampler=StubSampler(snapshot_with(memory_used_fraction=0.96)))
+        controller.cycleMode()
+        poll(controller, RAISE_SAMPLES + 20)
+        announcements = [line for line in controller.log if "Memory pressure at" in line]
+        assert len(announcements) == 1
+
+    def test_a_full_filesystem_is_escalated(self) -> None:
+        full = DiskUsage(mount_point="/", total=1_000, free=10)
+        controller = HudController(sampler=StubSampler(snapshot_with(disks=(full,))))
+        poll(controller, RAISE_SAMPLES)
+        assert controller.alertActive is True
+        assert controller.alertLabel == "Storage /"
+
+    def test_alert_signal_is_emitted(self) -> None:
+        controller = HudController(sampler=StubSampler(snapshot_with(memory_used_fraction=0.96)))
+        controller.cycleMode()
+        emissions: list[int] = []
+        controller.alertChanged.connect(lambda: emissions.append(1))
+        poll(controller, RAISE_SAMPLES)
+        assert emissions, "alertChanged never fired for an escalated condition"
+
+    def test_unavailable_memory_escalates_nothing(self) -> None:
+        empty = TelemetrySnapshot(monotonic_time=0.0, degraded_sources=("memory",))
+        controller = HudController(sampler=StubSampler(empty))
+        controller.cycleMode()
+        poll(controller, RAISE_SAMPLES + 2)
+        assert controller.alertActive is False

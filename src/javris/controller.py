@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
+from .attention import Alert, AttentionMonitor, MetricReading, Prominence
 from .commands.router import CommandRouter, Severity
 from .state import AssistantState, InvalidTransitionError, can_transition
 from .telemetry.models import TelemetrySnapshot
@@ -22,6 +23,19 @@ BOOT_DURATION_MS = 1800
 MAX_LOG_LINES = 200
 
 _MODES = ("DIAGNOSTICS", "MONITOR")
+
+#: Which metrics each mode already presents as a large, central element.
+#:
+#: This table is the documented proxy for gaze direction used by
+#: :mod:`javris.attention`; it must be kept in step with the mode QML. A metric
+#: listed here is considered already-seen in that mode and is never escalated,
+#: because escalation exists to move information the operator would otherwise
+#: miss. DIAGNOSTICS foregrounds three large gauges; MONITOR foregrounds only
+#: the reactor core, which encodes processor load.
+_CENTRAL_METRICS: dict[str, frozenset[str]] = {
+    "DIAGNOSTICS": frozenset({"cpu", "memory", "swap"}),
+    "MONITOR": frozenset({"cpu"}),
+}
 
 
 def format_bytes(value: float | None) -> str:
@@ -69,6 +83,7 @@ class HudController(QObject):
     modeChanged = Signal()
     snapshotChanged = Signal()
     logChanged = Signal()
+    alertChanged = Signal()
     shutdownRequested = Signal()
 
     def __init__(
@@ -85,6 +100,8 @@ class HudController(QObject):
         self._snapshot = TelemetrySnapshot(monotonic_time=0.0)
         self._log: list[str] = []
         self._windowed = False
+        self._attention = AttentionMonitor()
+        self._alert: Alert | None = None
 
         self._interval_ms = max(MIN_INTERVAL_MS, interval_ms)
         self._timer = QTimer(self)
@@ -136,6 +153,101 @@ class HudController(QObject):
         elif previously_degraded and not snapshot.is_degraded:
             self.append_log(Severity.OK, "All telemetry sources restored.")
 
+        self._evaluate_attention()
+
+    # -- attention escalation ---------------------------------------------
+
+    def _metric_readings(self) -> tuple[MetricReading, ...]:
+        """Describe every escalatable metric for the current mode.
+
+        Only metrics with a meaningful saturation point appear here. Uptime,
+        throughput and load average are excluded: they have no ceiling against
+        which "how full is it" could be judged, so a fraction would be invented.
+        """
+        central = _CENTRAL_METRICS.get(self._mode, frozenset())
+
+        def prominence(key: str) -> Prominence:
+            return Prominence.CENTRAL if key in central else Prominence.PERIPHERAL
+
+        cpu = self._snapshot.cpu_total_percent
+        memory = self._snapshot.memory
+
+        readings = [
+            MetricReading(
+                key="cpu",
+                label="Processor load",
+                fraction=None if cpu is None else cpu / 100.0,
+                readout=format_percent(cpu),
+                unit="%",
+                prominence=prominence("cpu"),
+                advice="Sustained processor saturation.",
+            ),
+            MetricReading(
+                key="memory",
+                label="Memory pressure",
+                fraction=None if memory is None else memory.used_fraction,
+                readout=("--" if memory is None else format_percent(memory.used_fraction * 100.0)),
+                unit="%",
+                prominence=prominence("memory"),
+                advice="Physical memory near capacity.",
+            ),
+            MetricReading(
+                key="swap",
+                label="Swap pressure",
+                fraction=None if memory is None else memory.swap_used_fraction,
+                readout=(
+                    "--" if memory is None else format_percent(memory.swap_used_fraction * 100.0)
+                ),
+                unit="%",
+                prominence=prominence("swap"),
+                advice="Swap in heavy use; expect stalls.",
+            ),
+        ]
+        readings.extend(
+            MetricReading(
+                key=f"disk:{disk.mount_point}",
+                label=f"Storage {disk.mount_point}",
+                fraction=disk.used_fraction,
+                readout=format_percent(disk.used_fraction * 100.0),
+                unit="%",
+                prominence=Prominence.PERIPHERAL,
+                advice=f"Filesystem {disk.mount_point} is filling up.",
+            )
+            for disk in self._snapshot.disks
+        )
+        return tuple(readings)
+
+    def _evaluate_attention(self) -> None:
+        """Run the escalation policy and announce any change on the console."""
+        previous = self._alert
+        current = self._attention.update(self._metric_readings())
+        self._alert = current
+
+        if previous is None and current is None:
+            return
+
+        changed = (
+            previous is None
+            or current is None
+            or previous.key != current.key
+            or previous.severity is not current.severity
+        )
+        if not changed:
+            # The readout moves every poll; the UI rebinds, but re-announcing an
+            # unchanged condition on the console would just be noise.
+            self.alertChanged.emit()
+            return
+
+        if current is None and previous is not None:
+            self.append_log(Severity.OK, f"{previous.label} back within limits.")
+        elif current is not None:
+            severity = Severity.ERROR if current.severity.value == "CRITICAL" else Severity.WARN
+            self.append_log(
+                severity,
+                f"{current.label} at {current.readout}{current.unit}. {current.advice}",
+            )
+        self.alertChanged.emit()
+
     # -- state -------------------------------------------------------------
 
     def set_state(self, target: AssistantState) -> None:
@@ -185,8 +297,7 @@ class HudController(QObject):
 
         self.append_log(result.severity, result.message)
         if result.mode is not None and result.mode != self._mode:
-            self._mode = result.mode
-            self.modeChanged.emit()
+            self._set_mode(result.mode)
         if result.shutdown:
             self.stop()
             self.shutdownRequested.emit()
@@ -195,9 +306,20 @@ class HudController(QObject):
     def cycleMode(self) -> None:  # noqa: N802 - QML naming convention
         """Advance to the next HUD mode."""
         index = (_MODES.index(self._mode) + 1) % len(_MODES)
-        self._mode = _MODES[index]
-        self.modeChanged.emit()
+        self._set_mode(_MODES[index])
         self.append_log(Severity.OK, f"Mode set to {self._mode}.")
+
+    def _set_mode(self, mode: str) -> None:
+        """Switch mode and immediately re-run the escalation policy.
+
+        Prominence is mode-dependent, so a mode change can make an escalated
+        metric central (releasing the alert) or push a central one into the
+        periphery. Re-evaluating here means the HUD is correct on the next
+        frame rather than up to one poll interval later.
+        """
+        self._mode = mode
+        self.modeChanged.emit()
+        self._evaluate_attention()
 
     def append_log(self, severity: Severity, message: str) -> None:
         """Append one bounded, severity-tagged line to the console log."""
@@ -323,3 +445,40 @@ class HudController(QObject):
     def degradedText(self) -> str:  # noqa: N802
         """Comma-separated names of unavailable telemetry sources."""
         return ", ".join(self._snapshot.degraded_sources)
+
+    # -- attention properties ---------------------------------------------
+
+    @Property(bool, notify=alertChanged)
+    def alertActive(self) -> bool:  # noqa: N802
+        """True when a condition has been escalated to the main display."""
+        return self._alert is not None
+
+    @Property(str, notify=alertChanged)
+    def alertLabel(self) -> str:  # noqa: N802
+        """Name of the escalated condition; empty when none is active."""
+        return "" if self._alert is None else self._alert.label
+
+    @Property(str, notify=alertChanged)
+    def alertReadout(self) -> str:  # noqa: N802
+        """Formatted value of the escalated condition."""
+        return "" if self._alert is None else self._alert.readout
+
+    @Property(str, notify=alertChanged)
+    def alertUnit(self) -> str:  # noqa: N802
+        """Unit suffix for :attr:`alertReadout`."""
+        return "" if self._alert is None else self._alert.unit
+
+    @Property(str, notify=alertChanged)
+    def alertAdvice(self) -> str:  # noqa: N802
+        """One-line explanation of the escalated condition."""
+        return "" if self._alert is None else self._alert.advice
+
+    @Property(str, notify=alertChanged)
+    def alertSeverity(self) -> str:  # noqa: N802
+        """``WARN``, ``CRITICAL``, or empty when no alert is active."""
+        return "" if self._alert is None else self._alert.severity.value
+
+    @Property(float, notify=alertChanged)
+    def alertFraction(self) -> float:  # noqa: N802
+        """Normalised 0.0-1.0 value of the escalated condition; -1.0 when none."""
+        return -1.0 if self._alert is None else self._alert.fraction

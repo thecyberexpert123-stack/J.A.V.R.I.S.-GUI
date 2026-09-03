@@ -1,7 +1,7 @@
 # J.A.V.R.I.S. GUI — Delivery Plan
 
 Owner: engineering (agent, acting as senior front-end/full-stack).
-Status: **M0 approved; M1-M6 implemented and verified.**
+Status: **M0 approved; M1-M7 implemented and verified.**
 Stakeholder decisions (2026-09-03): Qt 6 / QML confirmed on the basis of animation and
 performance; v1 scope = HUD shell with real local telemetry; Python/PySide6 backend.
 A hybrid multi-toolkit approach was considered and **declined**: Qt Quick already
@@ -100,6 +100,33 @@ telemetry is testable against fixture files with **zero** real `/proc` access.
 | **M4** | HUD shell, boot sequence, ReactorCore, Gauge, Panel, TelemetryRow | **Done** - Headless render produces the frame; qmllint clean |
 | **M5** | Modes (R2), LogStream, CommandRouter (R6), failure states (R7) | **Done** - Every failure mode in R7 demonstrated by a test |
 | **M6** | Packaging, README, run instructions, final self-review | **Done** - `pip install -e .` then one command launches it |
+| **M7** | Attention escalation (R9), from the second research round | **Done** - Policy unit-tested; overlay rendered and inspected |
+
+### R9 — Attention escalation (added after M6)
+
+Added because the second research round produced a behavioural requirement the
+original scope had missed, not to add a feature for its own sake. Full citation
+chain in `docs/RESEARCH.md` §7.
+
+**Requirement.** When a metric with a saturation point exceeds its warning
+threshold *while not already presented centrally*, the HUD must promote that
+condition into the main display and recede everything else.
+
+**Acceptance criteria — all met:**
+
+1. A sustained (≥3 poll) breach raises an alert; a single spike does not.
+2. At most one condition is escalated at a time; worst severity wins.
+3. A metric already central in the active mode is never escalated.
+4. An unavailable metric is never escalated, and an escalated metric that
+   becomes unavailable is released immediately.
+5. Hysteresis prevents a value oscillating on the threshold from flapping the
+   display.
+6. The header status never contradicts the banner.
+7. Escalation is announced on the console exactly once per transition.
+
+**Explicitly out of scope:** gaze/eye tracking. The mode-prominence proxy is
+documented as a proxy everywhere it appears and is never presented as attention
+sensing.
 
 ## 6. Risks and mitigations
 

@@ -82,9 +82,17 @@ Item {
             spacing: Theme.spaceMd
 
             Text {
-                text: hudSurface.controller.degraded
-                      ? "DEGRADED: " + hudSurface.controller.degradedText : "NOMINAL"
-                color: hudSurface.controller.degraded ? Theme.warn : Theme.ok
+                // Escalation outranks the degraded notice, and both outrank
+                // NOMINAL. Reporting "NOMINAL" while a critical condition is
+                // on screen would be the header contradicting the alert.
+                text: hudSurface.controller.alertActive
+                      ? hudSurface.controller.alertSeverity
+                      : (hudSurface.controller.degraded
+                         ? "DEGRADED: " + hudSurface.controller.degradedText : "NOMINAL")
+                color: hudSurface.controller.alertActive
+                       ? (hudSurface.controller.alertSeverity === "CRITICAL"
+                          ? Theme.error : Theme.warn)
+                       : (hudSurface.controller.degraded ? Theme.warn : Theme.ok)
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeSm
                 font.letterSpacing: Theme.letterSpacingLabel
@@ -113,6 +121,18 @@ Item {
     // -- mode surface --------------------------------------------------------
     Item {
         id: surface
+
+        // Suppression factor applied to everything the alert is competing
+        // with (docs/RESEARCH.md, D9): escalation is as much about hiding
+        // lower-priority data as it is about enlarging the problem.
+        // Not readonly: a Behavior has to be able to drive the value as it
+        // animates towards each new result of the binding.
+        property real suppression: hudSurface.controller.alertActive ? 0.28 : 1.0
+
+        Behavior on suppression {
+            NumberAnimation { duration: Theme.durationNormal; easing.type: Theme.easing }
+        }
+
         anchors {
             top: headerRule.bottom
             bottom: footer.top
@@ -130,7 +150,7 @@ Item {
         DiagnosticsMode {
             anchors.fill: parent
             controller: hudSurface.controller
-            opacity: hudSurface.controller.mode === "DIAGNOSTICS" ? 1 : 0
+            opacity: (hudSurface.controller.mode === "DIAGNOSTICS" ? 1 : 0) * surface.suppression
             visible: opacity > 0
 
             Behavior on opacity {
@@ -142,12 +162,30 @@ Item {
             anchors.fill: parent
             controller: hudSurface.controller
             bootProgress: hudSurface.bootProgress
-            opacity: hudSurface.controller.mode === "MONITOR" ? 1 : 0
+            opacity: (hudSurface.controller.mode === "MONITOR" ? 1 : 0) * surface.suppression
             visible: opacity > 0
 
             Behavior on opacity {
                 NumberAnimation { duration: Theme.durationSlow; easing.type: Theme.easing }
             }
+        }
+
+        // -- escalated condition ---------------------------------------------
+        // Deliberately a sibling of the modes, drawn over them: escalation
+        // means promoting the problem into the main display and suppressing
+        // what is less important (docs/RESEARCH.md, D9). Placing it beside the
+        // modes instead would just be one more thing competing for attention.
+        AlertBanner {
+            anchors.centerIn: parent
+            width: Math.min(parent.width - Theme.spaceXl * 2, 560)
+            height: implicitHeight
+
+            active: hudSurface.controller.alertActive
+            label: hudSurface.controller.alertLabel
+            readout: hudSurface.controller.alertReadout
+            unit: hudSurface.controller.alertUnit
+            advice: hudSurface.controller.alertAdvice
+            severity: hudSurface.controller.alertSeverity
         }
     }
 
@@ -162,7 +200,17 @@ Item {
         anchors.margins: Theme.spaceLg
         width: 250
         title: "Vitals"
-        opacity: hudSurface.bootProgress
+
+        // The suppression half of escalation (docs/RESEARCH.md, D9): while a
+        // condition is escalated, lower-priority peripheral detail recedes
+        // rather than continuing to compete with it. It is dimmed, not hidden,
+        // so the operator can still see that the rest of the system is being
+        // watched.
+        opacity: hudSurface.bootProgress * surface.suppression
+
+        Behavior on opacity {
+            NumberAnimation { duration: Theme.durationNormal; easing.type: Theme.easing }
+        }
 
         Column {
             width: parent.width

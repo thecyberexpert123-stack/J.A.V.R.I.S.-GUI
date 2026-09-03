@@ -6,6 +6,80 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — M7: attention escalation (2026-09-03)
+
+A second research round focused on HUD *behaviour* rather than appearance. The
+findings are recorded as principles D9-D14 in `docs/RESEARCH.md`, and the one
+that changed the product is this, from the source analysis itself: small
+peripheral gauges cannot capture attention, because foveal vision is narrow, so
+a competent assistant hides lower-priority data and promotes the problem into
+the main display. "Attention management is crisis management."
+
+- `src/javris/attention.py` — the escalation policy, as pure testable Python
+  with no Qt dependency. Classifies each metric, requires a **sustained**
+  condition before raising (3 polls), applies **hysteresis** on release so a
+  value hovering on a threshold cannot flap the centre of the HUD, and promotes
+  **at most one** condition at a time.
+- `AlertBanner.qml` — the escalated condition rendered large and high-contrast
+  over the mode surface, with the rest of the HUD dimmed to 0.28. Carries one
+  number and one sentence; no additional detail, per principle D10.
+- `TargetReticle.qml` — four corner brackets that converge from an oversized
+  scale, implementing "acquire, then annotate" (D13). Reusable independently of
+  alerts.
+- `Theme.fontSizeHero` (64 px), reserved for the escalated readout.
+- Controller: `alertActive`, `alertLabel`, `alertReadout`, `alertUnit`,
+  `alertAdvice`, `alertSeverity`, `alertFraction` and the `alertChanged` signal.
+- CPU, memory, swap and every mounted filesystem are escalatable. Uptime,
+  throughput and load average deliberately are **not**: they have no saturation
+  point, so a "how full is it" fraction would have to be invented.
+- `tools/headless_render.py --simulate-alert`, a review-only synthetic reading
+  so the overlay can be photographed on an idle machine. Not reachable from the
+  application.
+
+### Fixed
+- The header claimed `NOMINAL` while a `CRITICAL` alert was on screen — caught
+  only by looking at a rendered frame, not by any test. The status now reports
+  the escalated severity, which outranks both the degraded notice and
+  `NOMINAL`.
+- The alert backdrop at 0.88 opacity let the reactor core ghost through the hero
+  readout — the exact low-contrast failure the research warns against. Now fully
+  opaque.
+- Suppression initially dimmed only the vitals rail, leaving the mode surface at
+  full brightness competing with the alert. It now dims the mode surface too.
+- An alert held inside the hysteresis band classified as `NORMAL` and would have
+  rendered with no severity colour; it now reports `WARN`.
+- Releasing on "metric became central" or "metric became unavailable" was
+  incorrectly subject to the recovery streak. Both now release immediately:
+  hysteresis guards against a *value* oscillating, and delaying either would
+  leave the HUD displaying something untrue. Caught by a failing test.
+
+### Changed
+- Mode switching re-runs the escalation policy synchronously, because prominence
+  is mode-dependent. Previously the HUD could be wrong for up to one poll.
+
+### Verified
+- All seven quality gates pass: ruff lint + format, mypy strict (12 files),
+  **158 unit tests** (up from 120), qmllint clean on 12 QML files, **29 Qt Quick
+  tests** (up from 18), headless render at 1440x900.
+- The escalation overlay was rendered and visually inspected at
+  `build/hud-alert.png`; the unescalated MONITOR frame was re-rendered and
+  confirmed unchanged.
+
+### Not verified
+- No GPU, X11 or Wayland rendering; the software backend is all that is
+  available here. No frame-rate measurement, so no claim is made about the
+  animation smoothness of the escalation transition.
+- The escalation has not been observed against a *genuinely* saturated machine —
+  only against fixture and synthetic readings driven through the real policy.
+
+### Considered and rejected
+- Bundling a squared-geometric font (Eurostile, Bank Gothic). Both are
+  commercially licensed; the machined feel is obtained instead through wide
+  letter-spacing on upper-case labels. Only DejaVu is available in this
+  environment (verified).
+- Webcam/gesture input, 3D holographic depth, and a location/map panel. The last
+  is the important one: with no location data, a map would be fabrication.
+
 ### Added — M1-M6: first working HUD (2026-09-03)
 
 #### Telemetry (`src/javris/telemetry/`)

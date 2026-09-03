@@ -61,6 +61,9 @@ QtObject {
     readonly property int fontSizeMd: 12
     readonly property int fontSizeLg: 16
     readonly property int fontSizeXl: 28
+    // Reserved for escalated alerts: research D10 calls for high contrast and
+    // large type in the periphery, not more detail.
+    readonly property int fontSizeHero: 64
     readonly property real letterSpacingWide: 3.0
     readonly property real letterSpacingLabel: 1.4
 

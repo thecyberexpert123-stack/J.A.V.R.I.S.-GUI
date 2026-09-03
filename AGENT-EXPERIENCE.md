@@ -238,3 +238,80 @@ The gate passes end to end: ruff, ruff format, mypy `--strict`, 120 unit tests,
 qmllint clean on all 10 QML files, 18 QML tests, and a headless render. The honest
 next step is for a human to run it on a real Linux desktop, because the one thing I
 cannot do from here is look at it moving.
+
+## M7 — attention escalation
+
+### Research that actually changed the product
+
+The first research round gathered *appearance*: cyan, wireframes, cut corners.
+Useful, but it produced a themed dashboard. The second round asked a different
+question — what does the system *do* — and the answer reframed the work. The
+single most valuable sentence found was the source analysis criticising its own
+subject: little gauges wiggling in the periphery will not get the operator's
+attention, so escalate the problem into the main display.
+
+That is a *behaviour*, and it is what makes the thing feel like an assistant
+rather than a monitor. Lesson: when researching a visual reference, deliberately
+spend a pass looking for critique of it, not just description of it. The
+criticism is where the design requirements are.
+
+### The gaze proxy
+
+The reference behaviour depends on eye tracking. We have none. The temptation
+was to skip the feature or, worse, to imply capability we lack. Instead the
+substitute — is this metric already central in the active mode? — is named
+`Prominence`, documented as a proxy in three places, and never described as
+attention sensing. It also turned out to be *better* than a hack: "don't escalate
+what is already big and central" is genuinely correct on its own merits.
+
+The cost is a coupling that will rot silently: `_CENTRAL_METRICS` in Python has
+to match the mode QML layouts. That is called out in the design system, because
+nothing enforces it.
+
+### Hysteresis was not optional, and I got its scope wrong
+
+Escalation dims the entire HUD, so a metric hovering at 0.70 would strobe the
+whole display once per second. Streak counters plus a release margin fixed that.
+
+But I applied the recovery streak to *every* release path, including "the
+operator switched to a mode where this metric is central". A test asserting
+immediate release failed, and the failure was right and the code was wrong. The
+distinction I had missed: hysteresis exists to damp an oscillating **value**. A
+mode change is not an oscillation, and neither is a sensor disappearing —
+delaying those just leaves something untrue on the screen. Both now bypass the
+streak entirely.
+
+Worth noting the test caught this only because it was written from the docstring
+I had already written, which described the intended behaviour correctly. Writing
+the rationale first made the bug visible.
+
+### The screenshot found what 158 tests did not
+
+Every gate was green, and the rendered frame showed the header cheerfully
+reporting **NOMINAL** next to a **CRITICAL** 96.0% memory alert. No test covered
+"the header and the banner must agree" because it had not occurred to me that
+they could disagree.
+
+Same frame, two more: the mode surface was still at full brightness fighting the
+alert, and the reactor core was ghosting straight through the hero number at
+0.88 backdrop opacity — the precise low-contrast failure the research had warned
+about, reintroduced by my own tasteful transparency.
+
+This is the second milestone running where rendering an image caught a class of
+bug the test suite structurally could not. The suite asserts that components
+behave; it never asserts that they are *coherent with each other*. Rendering the
+unhappy path is now a step, not an afterthought — which is why
+`--simulate-alert` exists as a tool rather than as a throwaway snippet.
+
+### Small things
+
+- A `Behavior` cannot animate a `readonly property`. The error message
+  ("Invalid property assignment") does not mention `Behavior`, so it reads like a
+  binding mistake.
+- `ruff` removes `# noqa: SLF001` when the rule is not enabled, and the fix
+  suggestion silently discards the explanatory comment attached to it. Prefer a
+  real comment over a `noqa` when the rule is not on.
+- `.venv/` and `build/` are excluded from workspace snapshots, so both must be
+  rebuilt at the start of a session. `pip install -e ".[dev]"` plus
+  `tools/sandbox_gl_stubs.py` takes about 20 seconds. Worth checking before
+  assuming a tool is broken.

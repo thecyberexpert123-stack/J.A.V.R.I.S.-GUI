@@ -156,3 +156,131 @@ Recorded here for auditability; asked of you directly in chat.
    an existing assistant backend (LLM / STT / TTS)?
 3. Python (PySide6) or C++ (Qt6 native) for the backend layer — noting only Python is
    verifiable in this sandbox.
+
+---
+
+# Addendum — Round 2 research (2026-09-03)
+
+Deeper research into *behaviour* rather than appearance, to answer "what makes it
+JARVIS, not just a cyan dashboard". Sources fetched in full rather than from snippets.
+
+## 6. The four awarenesses
+
+The definitive critical framework for this HUD, from the *Make It So* augmented-reality
+chapter, applied to the Iron HUD
+([scifiinterfaces](https://scifiinterfaces.com/2015/07/21/iron-man-hud-1-person-view/)):
+
+| # | Awareness | In the film | Our analogue |
+|---|---|---|---|
+| A1 | **Sensor display** | Compass, altimeter, Mach speed, status readouts | CPU, memory, swap, thermal, load, network, storage |
+| A2 | **Location awareness** | Wireframe coastline, live air-traffic overlay | Not applicable — deliberately not faked |
+| A3 | **Context awareness** | Reticles jump to objects, then outline them and attach information | Reticle brackets lock onto the subsystem currently in trouble |
+| A4 | **Goal awareness** | Graphics tailored to the task at hand | Mode-driven layout, already implemented |
+
+We implement A1, A3 and A4. **A2 is deliberately omitted**: we have no location data,
+and inventing a map would be exactly the fabrication the project forbids.
+
+## 7. Attention escalation — the single most important behaviour
+
+This is the finding that most changes the product, and it is stated directly in the
+source analysis:
+
+> "having those teeny little gauges dancing around as a signal of troubles ahead won't
+> really get Tony's attention… Fortunately, JARVIS… is able to track where Tony is
+> looking, and **if he's *not* looking at the wiggling gauge, JARVIS can choose to
+> escalate the signal**: hide the air traffic data temporarily and show the problem in
+> the main screen. Here, as in other mission critical systems, **attention management
+> is crisis management**."
+> — [scifiinterfaces, 1st-person view](https://scifiinterfaces.com/2015/07/21/iron-man-hud-1-person-view/)
+
+The same source grounds this in perceptual science: the **fovea** covers only a few
+dozen degrees, so localised detail and motion in the periphery are *not* enough to
+capture attention. A commenter adds, and the linked demonstration supports, that
+**sharp gradients — high contrast — are detectable outside foveal extent** where fine
+detail is not.
+
+**Design consequences, adopted:**
+
+- **D9 — Escalate, do not merely indicate.** A critical condition displayed only in a
+  peripheral panel is a *failed* notification. When a metric goes critical while it is
+  only shown peripherally, the HUD must promote it to the centre of the display.
+- **D10 — Peripheral signals must be high-contrast, not high-detail.** Escalated
+  alerts use large type and strong contrast rather than small, finely-detailed
+  indicators.
+- **D11 — Escalation must be stable.** Real crisis management is undermined by
+  flapping, so escalation requires the condition to persist and uses hysteresis on the
+  way back down. (Our engineering addition, not from the source.)
+
+**Honest limitation:** we have no eye tracking, and will not pretend to. Where JARVIS
+uses gaze, we use an explicit, documented proxy — whether the metric is currently
+presented centrally or peripherally in the active mode. This is recorded in the code
+and the design system as a proxy, never described as attention sensing.
+
+## 8. Gauge inventory and progressive disclosure
+
+Five gauges persist across every iteration of the HUD: **suit status, targeting and
+optics, radar, artificial horizon, and map**
+([breakdown](https://scifiinterfaces.com/2015/07/01/iron-man-hud-a-breakdown/)).
+
+Critically, they are **small and peripheral while not needed, and become larger and
+more central when they are** — and Tony can summon greater detail, or a different
+visualisation of the same information, for any gauge
+([functions](https://scifiinterfaces.com/2015/07/13/iron-man-hud-just-the-functions/)).
+
+**D12 — Size encodes relevance.** A component's prominence should track its current
+importance, not sit fixed in the layout.
+
+## 9. Context awareness: the reticle behaviour
+
+> "As Tony sweeps his glance across his garage, complex reticles jump to each car.
+> Split-seconds afterwards, the car's outline is overlaid and some adjunct information
+> about it is presented."
+
+**D13 — Acquire, then annotate.** The interface first *brackets* the object of
+interest, then attaches information — a two-stage motion, not a single fade-in.
+
+## 10. Design discipline from the designer
+
+Jayse Hansen, on the stereo work for *The Avengers*
+([Pushing Pixels](https://www.pushing-pixels.org/2012/06/01/the-craft-of-screen-graphics-and-movie-user-interfaces-conversation-with-jayse-hansen.html)):
+
+> "everything is in focus – so everything is readable. We ended up with a much more
+> detailed look where we can read, for the first time, the small micro text and so we
+> made sure that **all the text is related to the scene, and all the graphics had a
+> purpose**"
+
+He also coins the counterpoint — the "**NUI**", or *non-usable interface*: film UI
+deliberately breaks usability rules to show what the computer is doing, whereas real UI
+hides it ([TNW](https://thenextweb.com/news/jayse-hansen-on-creating-tools-the-avengers-use-to-fight-evil-touch-interfaces-and-project-glass)).
+
+**D14 — Borrow the expressiveness, not the illegibility.** This is a real tool, so
+where the film's NUI conventions conflict with usability, usability wins. Every
+graphic must still carry a purpose — which is the film's own stated rule anyway.
+
+## 11. Typography
+
+The sci-fi baseline is the squared-geometric sans — Eurostile, Microgramma, Bank
+Gothic — whose rounded-rectangle forms read as machined
+([FilmFont](https://filmfont.com/articles/best-sci-fi-movie-fonts),
+[TV Tropes](https://tvtropes.org/pmwiki/pmwiki.php/Main/TypesetInTheFuture)). Method
+Studios built a squared Bank Gothic variant for *The Avengers* credits.
+
+**Decision: do not bundle a font.** Eurostile and Bank Gothic are commercially
+licensed, and adding a font dependency is not justified for the gain
+(guideline 16). `VERIFIED-LOCAL`: this environment exposes only DejaVu Sans, DejaVu
+Sans Mono, DejaVu Serif and the generic aliases. We therefore keep the system
+monospace and obtain the machined feel through **wide letter-spacing on upper-case
+labels**, which is the dominant characteristic of the look and costs nothing. A
+squared OFL face may be revisited later as an explicit, justified dependency.
+
+## 12. What this round deliberately does NOT add
+
+Recorded as considered-and-rejected, per guideline 19:
+
+- **Webcam, face mesh, gesture control** — several surveyed projects do this. It is a
+  large dependency and a privacy surface, with no requirement behind it.
+- **3D/holographic depth, curved panels on a sphere** (D4) — genuinely part of the
+  source design, but it needs Qt Quick 3D and would be decoration on a 2D monitor.
+- **A world map or location panel** — no data source; would be fabrication.
+- **Red/gold "Iron Man" palette variant** — the HUD proper is cyan-dominant; the
+  red/gold suggestion comes from an AI-prompt marketing page, not a primary source.

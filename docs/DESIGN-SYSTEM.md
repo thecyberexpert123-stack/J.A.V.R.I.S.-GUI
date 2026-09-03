@@ -124,3 +124,95 @@ Modes recompose the entire surface rather than swapping a tab
    well as by hue.
 4. **Motion always means something.** Nothing animates purely for effect; a stopped
    ring is itself the signal that the system has faulted.
+
+---
+
+## Attention escalation
+
+The behaviour that most distinguishes this HUD from a dashboard. Full rationale
+and citations in `docs/RESEARCH.md` §7 (principles D9-D13).
+
+### The rule
+
+> A critical condition shown only in the periphery is a **failed** notification.
+
+Peripheral gauges do not capture attention, because foveal vision is narrow. So
+when a metric goes bad while it is *not* already central, the HUD promotes it
+into the middle of the display and dims everything else.
+
+### Where the policy lives
+
+| Concern | Location | Why |
+|---|---|---|
+| When to escalate, hysteresis, priority | `src/javris/attention.py` | Pure Python, unit-testable without Qt |
+| Which metrics are central per mode | `_CENTRAL_METRICS` in `controller.py` | Must be kept in step with the mode QML |
+| How it looks | `ui/components/AlertBanner.qml` | Presentation only; decides nothing |
+| Acquisition motion | `ui/components/TargetReticle.qml` | Reusable; also usable outside alerts |
+
+### Thresholds
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `WARN_THRESHOLD` | 0.70 | Matches `Theme.loadColor`, so the banner and the small gauge never disagree |
+| `ERROR_THRESHOLD` | 0.90 | Renders as `CRITICAL` in `Theme.error` |
+| `RELEASE_MARGIN` | 0.05 | Hysteresis band; below this the alert may clear |
+| `RAISE_SAMPLES` | 3 | ~3 s at the default poll interval — a sustained condition, not a spike |
+| `CLEAR_SAMPLES` | 3 | Sustained recovery required before releasing |
+
+### The gaze proxy — and its honest limits
+
+The reference system escalates when it detects the operator is *not looking* at
+the gauge. **We have no eye tracker and do not pretend to.** The documented
+substitute is `Prominence`:
+
+- `CENTRAL` — the metric is already a large element near the middle in this
+  mode. **Never escalated**; it is already doing escalation's job.
+- `PERIPHERAL` — the metric appears only as a small rail row. **Escalatable.**
+
+`_CENTRAL_METRICS` currently maps `DIAGNOSTICS` → cpu, memory, swap (three large
+gauges) and `MONITOR` → cpu (the reactor core). **Changing a mode's layout
+requires updating this table**, or the HUD will either escalate something the
+operator is staring at or fail to escalate something they cannot see.
+
+### Release conditions
+
+Two conditions release an alert **immediately, without hysteresis**, because
+neither is a value oscillation and delaying them would leave something untrue on
+screen:
+
+1. **The metric became unavailable.** Holding the last known number as a live
+   alert would be a fabricated reading.
+2. **The metric became central** (the operator changed mode). They are now
+   looking straight at it.
+
+Falling below `WARN_THRESHOLD - RELEASE_MARGIN` for `CLEAR_SAMPLES` polls is the
+only *streaked* release.
+
+### Invariants
+
+- **At most one alert at a time.** Escalating two things recreates the
+  attention-splitting the mechanism exists to prevent. Worst severity wins;
+  highest fraction breaks ties; the key is the final, deterministic tiebreaker.
+- **An unavailable metric is never escalated.** No data is not evidence of a
+  fault.
+- **The header never contradicts the banner.** While an alert is up the status
+  reads `WARN`/`CRITICAL`, never `NOMINAL`.
+- **An active alert never renders in a calm colour.** Inside the hysteresis band
+  the raw classification is `NORMAL`; the alert reports `WARN` instead.
+- **The console announces each escalation once**, on the transition — not once
+  per poll.
+
+### Suppression
+
+`surface.suppression` (0.28 while an alert is active) multiplies the opacity of
+both modes and the vitals rail. Lower-priority data **recedes but does not
+vanish**, so the operator can still see the rest of the system is being watched.
+The banner's own backdrop is fully opaque: at 0.88 the reactor core ghosted
+through the hero readout, which is precisely the low-contrast failure D10 warns
+against.
+
+### Type
+
+`Theme.fontSizeHero` (64 px) exists only for the escalated readout. D10 calls
+for **high contrast and large type**, not more detail — the banner carries one
+number and one sentence, deliberately.
