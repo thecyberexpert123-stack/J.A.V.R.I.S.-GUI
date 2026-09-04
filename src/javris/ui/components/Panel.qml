@@ -40,6 +40,24 @@ Item {
                     + Math.max(contentArea.childrenRect.height, 0)
                     + padding * 2
 
+    // Inner edge light. The reference web HUD pairs every panel border with an
+    // inset glow; without it a framed panel reads as a flat cut-out. Clipped
+    // to the panel so the bloom stays inside the frame.
+    Item {
+        anchors.fill: parent
+        clip: true
+        z: -1
+
+        Glow {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: -parent.height * 0.55
+            size: parent.width * 1.5
+            color: root.frameColor
+            intensity: Theme.glowSubtle * Theme.glowScale * 0.7
+        }
+    }
+
     Shape {
         anchors.fill: parent
         asynchronous: true
@@ -48,7 +66,8 @@ Item {
         ShapePath {
             strokeColor: root.frameColor
             strokeWidth: Theme.strokeThin
-            fillColor: Theme.panel
+            // Translucent so the inner edge light reads through the fill.
+            fillColor: Qt.rgba(Theme.panel.r, Theme.panel.g, Theme.panel.b, 0.82)
             joinStyle: ShapePath.MiterJoin
 
             startX: Theme.cornerCut

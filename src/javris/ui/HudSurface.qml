@@ -134,6 +134,17 @@ Item {
         anchors.margins: Theme.spaceLg
         height: titleText.height + Theme.spaceSm
 
+        // Wordmark backlight: makes the title read as an illuminated sign
+        // rather than plain text, which is the single most visible "this is a
+        // powered system" cue in the top bar.
+        Glow {
+            anchors.centerIn: titleText
+            size: titleText.width * 1.6
+            color: Theme.primary
+            intensity: Theme.glowNormal * Theme.glowScale
+            core: 0.1
+        }
+
         Text {
             id: titleText
             text: "J.A.V.R.I.S."

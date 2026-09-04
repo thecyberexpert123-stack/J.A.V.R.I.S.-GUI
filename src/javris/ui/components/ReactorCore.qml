@@ -139,26 +139,32 @@ Item {
     // A slow luminance swell. Peripheral vision detects contrast change far
     // better than detail (D10), so this is how the core signals "alive"
     // without demanding a direct look.
-    Rectangle {
+    // A flat-colour circle read as a grey disc rather than light; a radial
+    // falloff reads as emission. Same breathing behaviour, real bloom.
+    Glow {
         id: breath
 
         anchors.centerIn: parent
-        width: root.outerRadius * 1.7
-        height: width
-        radius: width / 2
+        size: root.outerRadius * 2.4
         color: root.coreColor
-        opacity: 0.05 * root.bootProgress
+        core: 0.05
+        opacity: root.bootProgress
+        intensity: Theme.glowSubtle * Theme.glowScale
         visible: Theme.ambientMotion
 
-        SequentialAnimation on opacity {
+        // Drives intensity, not opacity: opacity now carries bootProgress, and
+        // an animation on it would overwrite that binding outright.
+        SequentialAnimation on intensity {
             running: root.animating
             loops: Animation.Infinite
             NumberAnimation {
-                to: 0.13; duration: Theme.periodBreath / 2
+                to: Theme.glowNormal * Theme.glowScale
+                duration: Theme.periodBreath / 2
                 easing.type: Easing.InOutSine
             }
             NumberAnimation {
-                to: 0.05; duration: Theme.periodBreath / 2
+                to: Theme.glowSubtle * Theme.glowScale
+                duration: Theme.periodBreath / 2
                 easing.type: Easing.InOutSine
             }
         }
@@ -419,6 +425,16 @@ Item {
         }
     }
 
+    // Hot aperture behind the centre, so the middle of the reactor is the
+    // brightest point on the display.
+    Glow {
+        anchors.centerIn: parent
+        size: root.outerRadius * 1.1
+        color: root.coreColor
+        opacity: root.bootProgress
+        intensity: Theme.glowStrong * Theme.glowScale
+    }
+
     // The lit centre. Kept as a ring-with-core rather than a flat disc so it
     // reads as a depth-lit aperture instead of a sticker.
     Rectangle {
@@ -427,9 +443,20 @@ Item {
         height: width
         radius: width / 2
         opacity: root.bootProgress
+        // Translucent so the aperture glow behind shows through. A solid fill
+        // made this a painted ball sitting on top of the light rather than the
+        // source of it.
         gradient: Gradient {
-            GradientStop { position: 0.0; color: root.coreColor }
-            GradientStop { position: 1.0; color: Theme.backgroundDeep }
+            GradientStop {
+                position: 0.0
+                color: Qt.rgba(root.coreColor.r, root.coreColor.g,
+                               root.coreColor.b, 0.30)
+            }
+            GradientStop {
+                position: 1.0
+                color: Qt.rgba(Theme.backgroundDeep.r, Theme.backgroundDeep.g,
+                               Theme.backgroundDeep.b, 0.55)
+            }
         }
         border.width: Theme.strokeThin
         border.color: root.coreColor

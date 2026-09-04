@@ -32,6 +32,17 @@ QtObject {
     readonly property color error:         "#ff5f6d"
     readonly property color unavailable:   "#4a5a63"
 
+    // -- light --------------------------------------------------------------
+    // Bloom intensities, matching the 0.1-0.5 alpha range the reference web
+    // HUD uses for its 15-25px glows. Kept as tokens so the whole HUD can be
+    // dimmed from one place rather than per component.
+    readonly property real glowSubtle: 0.16
+    readonly property real glowNormal: 0.30
+    readonly property real glowStrong: 0.48
+
+    //! Multiplier applied to every bloom. Set to 0 to disable all glow.
+    readonly property real glowScale: 1.0
+
     // -- spacing (4px base grid) -------------------------------------------
     readonly property int spaceXs: 4
     readonly property int spaceSm: 8

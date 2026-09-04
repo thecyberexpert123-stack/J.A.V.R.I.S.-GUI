@@ -416,3 +416,43 @@ by import. Sizing bars from an invented signal would have looked convincing and
 been a lie, so the ring encodes state only (D20). Likewise `EXECUTING` renders
 no progress arc unless a caller supplies a real `activity` value; the default of
 `-1` means "unknown" and draws nothing.
+
+## Round 5 — lighting
+
+**`MultiEffect` is a trap on this deployment.** It is the obvious tool for
+bloom, it is present in the runtime, and `pyside6-qmllint` accepts it happily.
+Under `QT_QUICK_BACKEND=software` it renders the source item as *nothing at
+all* — not an unblurred fallback, but a blank rectangle. I only caught it
+because I rendered the effect and its control side by side before building on
+it. An always-on HUD cannot ship a decoration that can silently erase content
+on a machine with no working GL, so the bloom is built from radial gradients
+instead, which the software renderer draws correctly.
+
+**Opaque fills defeat their own glow.** Both the orb core and the reactor
+centre had solid gradient fills. Adding a bloom behind them produced a bright
+ring around a black hole: the brightest object on screen was punched out at its
+own centre. Making the fills translucent was what turned "a circle with a halo
+sticker" into "a light source". The general rule: anything meant to read as
+emissive must let light pass through it.
+
+**Animating a property that already carries a binding.** The reactor's breathing
+animation drove `opacity`, and `opacity` had just been rebound to
+`bootProgress`. A `SequentialAnimation on opacity` overwrites that binding
+outright, so the boot fade would have been silently lost. Retargeting the
+animation to `intensity` kept both behaviours. This is the same class of bug as
+the `--boot-progress` `Behavior` retargeting trap from an earlier round.
+
+**A test that asserted nothing.** My first draft of the Glow suite contained
+`verify(!glow.enabled || true, "placeholder for hit-testing")` — a tautology
+that can never fail, dressed as a test. Replaced with a real check: a
+`MouseArea` underneath a larger glow with `z: 1`, clicked through the middle,
+asserting the control below still receives the event. Bloom overlaps
+neighbouring controls everywhere in this HUD, so had it been hit-testable it
+would have broken input in a way no visual review would catch.
+
+**Verified against real values, not the local machine.** The gauge backlight
+looked untested on screen because this container idles near zero, so every dial
+stayed dark — which is correct behaviour but proves nothing. Rendering a strip
+at 5% / 55% / 93% / unavailable confirmed the load ramp and the colour handoff.
+A feature that only activates under conditions the dev machine never reaches
+needs a synthetic harness, or it ships unverified.

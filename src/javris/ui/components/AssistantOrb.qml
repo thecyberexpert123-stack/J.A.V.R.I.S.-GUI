@@ -55,6 +55,19 @@ Item {
     */
     readonly property bool showsProgress: root.executing && root.activity >= 0
 
+    /*!
+        Brightness multiplier on the hot core: the assistant burns brighter
+        while it is actually doing something. Not readonly, so a Behavior can
+        ease it (a readonly property cannot be animated -- see
+        AGENT-EXPERIENCE.md Round 4).
+    */
+    property real coreLift: (root.thinking || root.executing) ? 1.45
+                            : (root.speaking || root.listening) ? 1.2 : 1.0
+
+    Behavior on coreLift {
+        NumberAnimation { duration: Theme.durationSlow; easing.type: Theme.easing }
+    }
+
     /*! True when the orb should be animating at all. Read by tests. */
     readonly property bool animating: Theme.ambientMotion && root.visible && !root.faulted
 
@@ -349,6 +362,36 @@ Item {
     }
 
     // -- core ----------------------------------------------------------------
+
+    // Ambient bloom filling the whole assembly. This is the single biggest
+    // contributor to the orb reading as *lit* rather than *drawn*, and it sits
+    // behind everything so the wireframe stays crisp on top of it.
+    Glow {
+        id: ambientBloom
+
+        anchors.centerIn: parent
+        size: root.radius * 2.5
+        color: root.tint
+        intensity: Theme.glowSubtle * Theme.glowScale
+        core: 0.05
+
+        // Breathes even at rest, so the orb never looks like a frozen image.
+        SequentialAnimation on intensity {
+            running: root.animating
+            loops: Animation.Infinite
+            NumberAnimation {
+                to: Theme.glowNormal * Theme.glowScale
+                duration: Theme.periodBreath / 2
+                easing.type: Easing.InOutSine
+            }
+            NumberAnimation {
+                to: Theme.glowSubtle * Theme.glowScale
+                duration: Theme.periodBreath / 2
+                easing.type: Easing.InOutSine
+            }
+        }
+    }
+
     Rectangle {
         id: halo
 
@@ -371,6 +414,18 @@ Item {
         }
     }
 
+    // Tight hot core: this is the "power source" read. Brighter and much
+    // smaller than the ambient bloom, so the centre has a definite source
+    // rather than an evenly-lit fog.
+    Glow {
+        anchors.centerIn: parent
+        size: root.radius * 1.15
+        color: root.tint
+        intensity: (root.faulted ? Theme.glowSubtle : Theme.glowStrong)
+                   * Theme.glowScale * root.coreLift
+        core: 0.0
+    }
+
     Rectangle {
         anchors.centerIn: parent
         width: root.radius * 0.56
@@ -378,9 +433,17 @@ Item {
         radius: width / 2
         border.width: Theme.strokeMedium
         border.color: root.tint
+        // Translucent, not opaque: an opaque disc punched a black hole in the
+        // middle of its own bloom, which is exactly backwards for something
+        // meant to read as a light source. Letting the glow through makes the
+        // core the brightest point instead of the darkest.
         gradient: Gradient {
-            GradientStop { position: 0.0; color: Theme.panel }
-            GradientStop { position: 1.0; color: Theme.backgroundDeep }
+            GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0) }
+            GradientStop {
+                position: 1.0
+                color: Qt.rgba(Theme.backgroundDeep.r, Theme.backgroundDeep.g,
+                               Theme.backgroundDeep.b, 0.55)
+            }
         }
     }
 

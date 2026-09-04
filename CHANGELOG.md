@@ -7,6 +7,27 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Emissive lighting across the HUD.** A new `Glow` component provides a soft
+  radial bloom, applied to the assistant orb (ambient + hot core), the reactor
+  core aperture, panel top edges, the wordmark, and the gauges. The HUD now
+  reads as a lit instrument rather than a line drawing.
+- **Load-proportional gauge backlight** — a dial's bloom brightens with its
+  value and takes the load colour, so a hot gauge is visible peripherally
+  before the number is read (D10). Unavailable gauges emit no light at all.
+- `Theme.glowSubtle` / `glowNormal` / `glowStrong` intensity tokens and a
+  `Theme.glowScale` master multiplier that can extinguish all bloom at once.
+- `coreLift` on the orb: the core burns brighter while the assistant is
+  actually working, easing between levels rather than snapping.
+
+### Changed
+- Core discs on both the orb and the reactor are now translucent. They were
+  opaque, which punched a dark hole through the middle of their own glow --
+  backwards for something meant to read as a light source.
+- Panel fills are slightly translucent so the inner edge light reads through.
+- The reactor's breathing halo is a real radial falloff instead of a
+  flat-colour circle, which read as a grey disc rather than light.
+
+### Added
 - **ASSISTANT mode** — a modal takeover in which the assistant itself, rather
   than the machine, owns the display. Reachable with `mode assistant` or by
   cycling with TAB. The instrument rail is withdrawn while it is up.

@@ -38,6 +38,23 @@ Item {
     readonly property real _radius: Math.min(width, height) / 2 - Theme.strokeThick
     readonly property color _color: Theme.loadColor(value)
 
+    // Backlight behind the dial, brightening with load. A gauge at 90% should
+    // feel hot before the number is read -- peripheral vision registers
+    // luminance change long before it resolves digits (D10).
+    Glow {
+        anchors.centerIn: parent
+        size: root._radius * 2.1
+        color: root._color
+        visible: root.available && root.value > 0
+        intensity: Theme.glowSubtle * Theme.glowScale
+                   * Math.min(1, Math.max(0, root.value)) * 1.4
+        core: 0.25
+
+        Behavior on intensity {
+            NumberAnimation { duration: Theme.durationSlow; easing.type: Theme.easing }
+        }
+    }
+
     Shape {
         anchors.fill: parent
         asynchronous: true

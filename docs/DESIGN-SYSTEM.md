@@ -301,3 +301,54 @@ gauge transitions, state colour — because suppressing those would hide data.
 Every ambient animation must additionally stop when its item is not `visible`.
 An unseen HUD must burn no cycles; `AmbientField.running` and
 `ReactorCore.animating` encode this and are asserted by tests.
+
+## Light
+
+The HUD is an emissive display: elements should read as *lit*, not *drawn*.
+Bloom is what separates a wireframe diagram from an instrument that is powered.
+
+### The `Glow` component
+
+A soft radial bloom, placed behind the element it lights and centred on it.
+
+```qml
+Glow {
+    anchors.centerIn: ring
+    size: ring.width * 1.8      // typically 1.5-2x the lit element
+    color: Theme.primary
+    intensity: Theme.glowNormal * Theme.glowScale
+}
+```
+
+**Why not `MultiEffect`.** Qt's blur effect requires a GPU shader path. Under
+`QT_QUICK_BACKEND=software` it renders its source item as nothing at all rather
+than degrading gracefully, which would blank real content on a machine without
+working GL. `Glow` uses a three-stop radial gradient, which every renderer
+draws. Verified by rendering both paths side by side.
+
+### Intensity tokens
+
+| Token | Value | Use |
+|---|---|---|
+| `Theme.glowSubtle` | 0.16 | Ambient fields, panel edges, resting states |
+| `Theme.glowNormal` | 0.30 | The wordmark, breathing peaks |
+| `Theme.glowStrong` | 0.48 | Hot cores — the single brightest point of an element |
+| `Theme.glowScale` | 1.0 | Master multiplier; set to 0 to extinguish all bloom |
+
+Always multiply by `Theme.glowScale`, never hardcode an intensity.
+
+### Rules
+
+1. **Glow is decorative and never load-bearing.** Every element must remain
+   fully legible with `glowScale` at 0. A glow may reinforce a meaning that is
+   already carried by shape, colour or text — it may never be the only carrier.
+2. **Emissive elements must be translucent.** An opaque fill over a bloom
+   punches a dark hole through the centre of its own light. Core discs use
+   alpha so the glow reads through them.
+3. **Brightness may encode magnitude, never invent it.** The gauge backlight
+   scales with the measured value and emits nothing when the reading is
+   unavailable. Do not animate brightness to imply activity that is not
+   happening (D20).
+4. **Faults dim rather than flare.** A faulted core uses `glowSubtle`, not
+   `glowStrong`: a fault is not a mood, and a bright red bloom reads as power
+   rather than failure.
