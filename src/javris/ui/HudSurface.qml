@@ -260,6 +260,17 @@ Item {
             }
         }
 
+        AssistantMode {
+            anchors.fill: parent
+            controller: hudSurface.controller
+            opacity: (hudSurface.controller.mode === "ASSISTANT" ? 1 : 0) * surface.suppression
+            visible: opacity > 0
+
+            Behavior on opacity {
+                NumberAnimation { duration: Theme.durationSlow; easing.type: Theme.easing }
+            }
+        }
+
         // -- escalated condition ---------------------------------------------
         // Deliberately a sibling of the modes, drawn over them: escalation
         // means promoting the problem into the main display and suppressing
@@ -290,13 +301,20 @@ Item {
         anchors.margins: Theme.spaceLg
         width: 250
         title: "Vitals"
+        // The Panel paints a frame and fill of its own, so opacity alone left
+        // a visible edge in ASSISTANT mode. visible is bound below.
 
         // The suppression half of escalation (docs/RESEARCH.md, D9): while a
         // condition is escalated, lower-priority peripheral detail recedes
         // rather than continuing to compete with it. It is dimmed, not hidden,
         // so the operator can still see that the rest of the system is being
         // watched.
-        opacity: hudSurface.entrance(0.86) * surface.suppression
+        // Hidden in ASSISTANT mode: that mode is a modal takeover, and leaving
+        // the instrument rail up would defeat the point of it.
+        readonly property bool relevant: hudSurface.controller.mode !== "ASSISTANT"
+
+        opacity: hudSurface.entrance(0.86) * surface.suppression * (rail.relevant ? 1 : 0)
+        visible: opacity > 0
 
         // Slides in from beyond its own edge: elements arrive from outside the
         // frame rather than materialising in place (D15/D17).

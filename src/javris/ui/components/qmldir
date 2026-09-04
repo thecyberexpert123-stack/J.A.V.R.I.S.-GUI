@@ -9,3 +9,4 @@ TargetReticle 1.0 TargetReticle.qml
 AlertBanner 1.0 AlertBanner.qml
 AmbientField 1.0 AmbientField.qml
 BootSequence 1.0 BootSequence.qml
+AssistantOrb 1.0 AssistantOrb.qml

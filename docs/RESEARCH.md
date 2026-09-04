@@ -396,3 +396,94 @@ Probed this environment directly rather than assuming:
 Both were confirmed by loading a probe QML file offscreen and grabbing a
 non-null frame. **Still not verified:** GPU behaviour, real frame rates. All
 performance claims remain unmade.
+
+---
+
+# Addendum — Round 4: the assistant orb (2026-09-04)
+
+Brief: "make the Voice HUD, and all, more better like my web GUI." Studied
+`voice-hud.tsx`, `looping-voice-hud.tsx`, `central-core.tsx` and
+`use-voice-assistant.ts` in the user's project.
+
+## 17. What their Voice HUD actually is
+
+A **full-screen modal takeover**. The ambient HUD recedes and a single large
+orb owns the display, cycling through five statuses with a distinct visual
+signature for each:
+
+| Status | Visual signature |
+|---|---|
+| `idle` | Rings only, slow rotation |
+| `listening` | **120 radial bars** around the rim + particles sucked inward |
+| `thinking` | Two counter-rotating scanner lines + floating hexagon glyphs; rings speed up and the whole assembly scales to 1.05 |
+| `speaking` | **Four ripple rings** expanding outward on a 0.5 s stagger + an energy pulse |
+| `error` | Rings only, message shown |
+
+Structural notes: the core sits on ~7 `translateZ` planes from −150 px to
++80 px; ring rotation periods change per status (40 s idle → 10 s thinking);
+status text sits below the orb; the name is rendered at the centre.
+
+## 18. The decisive observation — it is not an audio meter
+
+The obvious reading of "120 bars around a circle" is a microphone visualiser.
+**It is not.** In `voice-hud.tsx` each bar is:
+
+```
+className="animate-waveform-bar"
+style={{ animationDelay: `${i * 0.025}s`, animationDuration: '1.5s' }}
+```
+
+A fixed CSS keyframe with an index-derived delay. It never touches the audio
+stream. The microphone lives entirely in `use-voice-assistant.ts`
+(`webkitSpeechRecognition`), which produces a *transcript* — and the transcript
+is displayed as **text**, not as a waveform.
+
+So the ring is a **state visualiser**: it means "the assistant is in the
+listening state", not "this is the sound arriving right now". That distinction
+is what makes it reimplementable here without violating the honesty contract.
+
+**D20 — A visualiser may encode state; it must never imply a signal that is not
+being measured.** The rim animation is legitimate because it is driven by, and
+only claims to represent, the assistant state. Sizing those bars from fake
+amplitude data would be fabrication, and is refused.
+
+## 19. Capability check — `VERIFIED-LOCAL`
+
+- **`PySide6.QtMultimedia` is not installed** in this environment
+  (`ModuleNotFoundError`). There is no audio capture path, and none is added:
+  the runtime dependency stays PySide6-Essentials only.
+- Consequently **no microphone, no STT, no TTS, no wake word** — unchanged from
+  the v1 scope decision. The orb is driven by the existing eight-state machine.
+
+## 20. State mapping
+
+Their five statuses map onto our eight states, which are already real and
+already validated by a transition table:
+
+| Theirs | Ours |
+|---|---|
+| `idle` | `STANDBY` |
+| `listening` | `LISTENING` |
+| `thinking` | `PROCESSING`, `EXECUTING` |
+| `speaking` | `SPEAKING` |
+| `error` | `ERROR`, `OFFLINE` |
+
+`EXECUTING` gains its own treatment rather than being folded into thinking:
+we can distinguish "deciding" from "doing", and the user's design has no
+equivalent only because their pipeline has no such stage.
+
+## 21. What is adopted, and what is not
+
+**Adopted:** modal full-screen takeover; per-state visual signatures; radial rim
+bars for `LISTENING`; counter-rotating scanners for `PROCESSING`; staggered
+ripples for `SPEAKING`; status caption beneath the orb; per-state ring speed.
+
+**Not adopted:**
+
+- **Real 3D `translateZ` planes.** We get the depth read from motion and
+  parallax instead (D15), which is already the project's established approach
+  and needs no Qt Quick 3D.
+- **The transcript line.** There is nothing to transcribe.
+- **Auto-cycling through statuses on a timer** (their `central-core.tsx` demos
+  this). Ours reflects the genuine state machine; a decorative cycle would be
+  theatre implying activity that is not happening.

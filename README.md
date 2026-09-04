@@ -54,6 +54,12 @@ anything the kernel will not report is shown as unavailable rather than faked.
 *`MONITOR` mode with the reactor core in `PROCESSING` — the amber sweep runs only
 while the assistant is actually working.*
 
+![Assistant mode](docs/images/hud-assistant.png)
+
+*`ASSISTANT` mode in `LISTENING` — a modal takeover where the assistant itself
+owns the display. The travelling wave around the rim is a **state** visualiser,
+not an audio meter: this project captures no audio at all (see D20).*
+
 ![Attention escalation](docs/images/hud-alert.png)
 
 *A sustained memory-pressure condition escalated into the main display. The header

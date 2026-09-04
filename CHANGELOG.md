@@ -6,6 +6,29 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **ASSISTANT mode** — a modal takeover in which the assistant itself, rather
+  than the machine, owns the display. Reachable with `mode assistant` or by
+  cycling with TAB. The instrument rail is withdrawn while it is up.
+- **`AssistantOrb` component** — a per-state presence modelled on the Voice HUD
+  in the user's own web project (`docs/RESEARCH.md` §17-21): a travelling-wave
+  rim for LISTENING, counter-rotating scanners for PROCESSING, staggered
+  ripples for SPEAKING, and a determinate arc for EXECUTING. One shared 1500 ms
+  phase clock drives every derived animation rather than one animator per bar.
+- Plain-language caption under the orb naming what each state means, which is
+  the corrective to the unlabelled-telemetry problem recorded as D8.
+
+### Changed
+- A fault is now coherent across the whole orb: the standing arcs follow the
+  fault colour instead of staying cyan, which previously read as "partly fine".
+- Faulted states are **still**. A fault is not a mood.
+
+### Fixed
+- `tools/headless_render.py` walked illegal state transitions (e.g. straight
+  from STANDBY to SPEAKING), which the state machine correctly refused, so it
+  silently captured the wrong state. It now follows a legal route and fails
+  loudly if it does not arrive.
+
 ### Added — M8: motion language (2026-09-04)
 
 A third research round, this time into how the reference material *moves*, plus

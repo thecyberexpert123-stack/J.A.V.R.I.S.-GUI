@@ -22,7 +22,7 @@ BOOT_DURATION_MS = 1800
 #: grow the model without limit.
 MAX_LOG_LINES = 200
 
-_MODES = ("DIAGNOSTICS", "MONITOR")
+_MODES = ("DIAGNOSTICS", "MONITOR", "ASSISTANT")
 
 #: Which metrics each mode already presents as a large, central element.
 #:
@@ -35,6 +35,9 @@ _MODES = ("DIAGNOSTICS", "MONITOR")
 _CENTRAL_METRICS: dict[str, frozenset[str]] = {
     "DIAGNOSTICS": frozenset({"cpu", "memory", "swap"}),
     "MONITOR": frozenset({"cpu"}),
+    # ASSISTANT is a modal takeover: it deliberately shows almost no telemetry,
+    # so nothing is "already central" and any breach is escalatable.
+    "ASSISTANT": frozenset(),
 }
 
 

@@ -13,6 +13,7 @@ from PySide6.QtCore import QCoreApplication
 
 from javris.attention import RAISE_SAMPLES
 from javris.controller import (
+    _MODES,
     HudController,
     format_bytes,
     format_duration,
@@ -206,12 +207,18 @@ def test_clear_command_empties_log(controller: HudController) -> None:
     assert controller.log == []
 
 
-def test_cycle_mode_wraps(controller: HudController) -> None:
+def test_cycle_mode_visits_every_mode_then_wraps(controller: HudController) -> None:
     first = controller.mode
+    seen = [first]
+    for _ in range(len(_MODES) - 1):
+        controller.cycleMode()
+        assert controller.mode not in seen, "cycling must not repeat a mode early"
+        seen.append(controller.mode)
+
+    assert set(seen) == set(_MODES), "every mode must be reachable by cycling"
+
     controller.cycleMode()
-    assert controller.mode != first
-    controller.cycleMode()
-    assert controller.mode == first
+    assert controller.mode == first, "cycling must wrap round to the start"
 
 
 def test_shutdown_command_emits_request(controller: HudController) -> None:
@@ -351,9 +358,10 @@ class TestAttentionIntegration:
         assert controller.alertActive is True
 
         # Back to DIAGNOSTICS, where memory is central: released on the spot,
-        # without waiting for another poll.
-        controller.cycleMode()
-        assert controller.mode == "DIAGNOSTICS"
+        # without waiting for another poll. There is now a third mode in the
+        # cycle, so keep cycling until we arrive back.
+        while controller.mode != "DIAGNOSTICS":
+            controller.cycleMode()
         assert controller.alertActive is False
 
     def test_escalation_announces_itself_on_the_console(self) -> None:

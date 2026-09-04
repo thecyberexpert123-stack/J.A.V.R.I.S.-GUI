@@ -98,12 +98,37 @@ def render(
 
     controller.start()
 
-    if mode is not None and controller.mode != mode:
-        controller.cycleMode()
+    if mode is not None:
+        # cycleMode advances one step, and there are now three modes.
+        for _ in range(4):
+            if controller.mode == mode:
+                break
+            controller.cycleMode()
     if state is not None:
-        # Walk the legal path out of BOOTING before forcing the target state.
-        controller.requestState("STANDBY")
-        controller.requestState(state)
+        # Walk a *legal* path to the target: the transition table rejects
+        # illegal jumps (correctly), so e.g. STANDBY -> SPEAKING must go via
+        # LISTENING and PROCESSING. Trying to jump straight there just logged a
+        # refusal and rendered the wrong state.
+        routes = {
+            "STANDBY": ["STANDBY"],
+            "LISTENING": ["STANDBY", "LISTENING"],
+            "PROCESSING": ["STANDBY", "PROCESSING"],
+            "EXECUTING": ["STANDBY", "PROCESSING", "EXECUTING"],
+            "SPEAKING": ["STANDBY", "PROCESSING", "SPEAKING"],
+            "ERROR": ["ERROR"],
+            "OFFLINE": ["OFFLINE"],
+            "BOOTING": [],
+        }
+        for step in routes.get(state.upper(), ["STANDBY", state]):
+            if not controller.requestState(step):
+                print(f"Refused transition to {step}.", file=sys.stderr)
+                return 1
+        if controller.state != state.upper():
+            print(
+                f"Wanted state {state.upper()}, ended in {controller.state}.",
+                file=sys.stderr,
+            )
+            return 1
 
     if boot_progress is not None:
         # Freeze the boot choreography for inspection.
@@ -164,7 +189,7 @@ def main() -> int:
     parser.add_argument("--height", type=int, default=900)
     parser.add_argument(
         "--mode",
-        choices=["DIAGNOSTICS", "MONITOR"],
+        choices=["DIAGNOSTICS", "MONITOR", "ASSISTANT"],
         default=None,
         help="Render a specific HUD mode instead of the default.",
     )

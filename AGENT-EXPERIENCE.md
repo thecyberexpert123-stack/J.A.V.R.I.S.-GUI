@@ -379,3 +379,40 @@ good, not maximising the literal ask.
   become unreadable. Obvious in hindsight; invisible until rendered.
 - Every new infinite animation needs gating on both the master switch *and*
   `visible`. Easy to add the first and forget the second.
+
+## Round 4 — the assistant orb
+
+**A refusal that the render tool exposed.** `headless_render.py` was asking for
+`SPEAKING` and quietly getting `STANDBY`. The cause was not a bug in the orb: it
+was the state machine correctly rejecting an illegal `STANDBY -> SPEAKING` jump
+and logging the refusal to the console, where the screenshot dutifully captured
+it. Two lessons. Rendering the wrong thing successfully is worse than crashing,
+so the tool now fails loudly when it does not arrive at the requested state.
+And a tool that drives a system under test must obey that system's rules rather
+than assume it can set any field it likes.
+
+**`readonly` and `Behavior` remain incompatible, and the linter does not care.**
+`swell` was declared `readonly` with a `Behavior` attached. `pyside6-qmllint`
+passed it clean; the runtime rejected it on the first frame. This is the second
+time this exact trap has cost a cycle. Static analysis here covers types and
+names, not the animation system — anything animated has to be seen running.
+
+**Coherence is a correctness property, not a polish item.** During a fault the
+orb went red but two standing arcs stayed cyan, because they were hardcoded to
+`primaryDim` rather than derived from the tint. It read as "partly fine", which
+is a false statement about system state. Any element that can be present during
+a fault must derive its colour from the fault, not merely most of them.
+
+**Three test failures, zero component bugs.** All three came from the harness:
+`anchors.fill` silently overrode the width the clamping test was setting, so it
+asserted against an unchanged 100 bars, and `swell` could not be read
+synchronously once a `Behavior` eased it. A test that passes for the wrong
+reason is the real hazard — the sizing test would have "passed" at any clamp
+values had the range been wider.
+
+**What was refused.** The 120 rim bars are tempting to drive from audio
+amplitude. There is no audio: `PySide6.QtMultimedia` is not installed, verified
+by import. Sizing bars from an invented signal would have looked convincing and
+been a lie, so the ring encodes state only (D20). Likewise `EXECUTING` renders
+no progress arc unless a caller supplies a real `activity` value; the default of
+`-1` means "unknown" and draws nothing.
