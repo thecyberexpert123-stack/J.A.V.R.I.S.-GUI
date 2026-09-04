@@ -588,3 +588,91 @@ I did not run the approve path to completion: it was a real `apt` upgrade in
 this sandbox. I verified that consent is re-sent verbatim with `allow: true` and
 that the kernel accepts it, then cut the process off. Recording that boundary
 matters more than claiming a clean finish.
+
+## Round 9 — aligning with a backend that moved eight versions
+
+The kernel went 1.10.2 → 1.18.0. The tool surface did not change at all: still
+six tools, same schemas, same contract id. Everything that mattered was
+underneath, and none of it was reachable by reading the wiring doc — which was
+last revised for 1.12.0 while the kernel shipped 1.18.0. **A stale integration
+doc is more dangerous than a missing one**, because it reads as current. Every
+claim in this round came from driving the running binary.
+
+**The bug I went looking for.** Last round I found that `jarvis_do` gates by
+tier, not by tool. This round I pushed on that and found the corollary:
+
+    do remove the file /tmp/x  ->  tier 1, ran immediately, undo: unavailable
+
+An irreversible deletion with no prompt. The kernel is *right* — `rm` of a
+user-owned file is user-level, and demanding system-level consent for it would
+be wrong. But "how much authority does this need" and "can this be taken back"
+are different questions, and only the first was being asked. The owner told me
+to handle both, and the shape that fell out was two gates that are deliberately
+different in kind: one grants authority and cannot be disabled, one
+acknowledges risk and grants nothing. I made them different colours and
+different verbs — "APPROVE AND RUN" versus "RUN ANYWAY" — because if both
+prompts look the same the owner learns to dismiss both, and the one that
+carries real authority is the one that suffers.
+
+The gate is driven entirely by the kernel's own `undo.status`. I considered a
+list of dangerous-looking verbs and rejected it: it would be security theatre,
+and it would disagree with the kernel about what a request actually does.
+`none_needed` counts as reversible; anything unrecognised counts as
+irreversible, because optimism about reversibility is the one error that cannot
+be corrected afterwards.
+
+**Refusing to reuse the backend's own voice command.** `jarvis voice ask`
+records, transcribes, and *runs* the request. Wiring the GUI to it would have
+been three lines and would have quietly bypassed both gates — a misheard
+sentence would reach the kernel without the owner ever seeing the words. So the
+GUI uses only the first half of the pipeline and puts the transcript in the
+input field. Speech is a keyboard that can mishear. ADR-0019 says voice must
+never manufacture consent; here it cannot even initiate an action.
+
+**`str()` on a QByteArray is a silent liar.** Reading the doorway's version, my
+first attempt was `str(reply.rawHeader("Server"))`, which returns the Python
+*repr* — `"b'jarvis-serve/1.18.0'"` — and parsed to an empty string. No error,
+no warning; the UI would just have said the version was unknown forever. It
+surfaced only because I printed the value during a live probe instead of
+trusting that a plausible-looking line worked. The same lesson as the `destroy()`
+leak two rounds ago: plausible code plus no observation equals no verification.
+
+**Verifying a security posture instead of citing it.** ADR-0018 lists the
+doorway's hardening. I ran it and checked: 401 unauthenticated, 421 on a foreign
+Host header, 0600 token, token absent from the logs. All true. Citing the ADR
+would have been faster and would have been an assumption; the four probes cost
+a minute and turned it into a fact. I also refuse a token file that is
+group-readable — if another account can read it, that account can already act
+as the owner, and papering over that would be the wrong help.
+
+**One classifier, two transports.** It was tempting to give the HTTP path its
+own outcome parsing, since its envelope differs (decoded object versus a JSON
+string needing a second parse). I normalised HTTP into the stdio shape instead.
+The refusal-versus-failure distinction is the one piece of logic in this bridge
+that must never drift, and two implementations of it are two places for it to.
+
+**What I did not verify.** The spoken loop has never run against real
+`arecord`/`whisper` binaries — they are not installed here, and I tested with
+stubs I wrote myself. The argv matches the kernel's own and is unit-tested, but
+no microphone has been exercised, and the docs say so rather than implying a
+working feature.
+
+**The defect I found by attacking my own work.** After the gates passed all
+their tests, I went looking for a case the tests could not see: what happens to
+the *cached plan* when no preview runs? Under `confirm kernel-only` the GUI
+sends `do` directly, so `_last_plan` still holds whatever the last `plan`
+command produced. I drove it live — `plan remove the file /tmp/zzz`, then
+`do upgrade the whole system` — and the consent prompt for the upgrade rendered
+`rm -f /tmp/zzz` as the command that would run.
+
+The owner would have been reading one command while approving another, in the
+one dialog where that matters most. Every unit test passed, mypy was clean, and
+the render looked perfect, because the bug lived in the relationship between
+two pieces of state rather than in either one. The fix pins each plan to the
+request it was computed for and shows nothing when they disagree — an empty
+plan block is honest; a confident wrong one is not.
+
+Two rounds running, the serious bug has been in a path the gates cannot reach
+and only adversarial live driving exposed. I have stopped treating a green
+check run as evidence that a security-relevant flow is correct; it is evidence
+that the flows I thought to write down are correct.

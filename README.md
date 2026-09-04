@@ -100,6 +100,25 @@ Or without installing: `python -m javris --windowed`.
 | List commands | `help` |
 | Quit | `shutdown` |
 
+### Agent commands
+
+These need a [J.A.V.R.I.S. kernel](https://github.com/thecyberexpert123-stack/J.A.V.R.I.S.)
+(`jarvis-agent`) on `PATH` or in the same virtualenv. The agent is not started
+automatically.
+
+| Command | Does |
+|---|---|
+| `ask <question>` | Evidence-backed answer; read-only |
+| `plan <request>` | Show the plan and its blast radius without running it |
+| `do <request>` | Carry out a request, subject to both confirmation gates |
+| `suggest` | Evidence-backed suggestions; runs nothing |
+| `confirm irreversible \| always \| kernel-only` | GUI-side confirmation policy |
+| `agent status` / `agent disconnect` | Connection and machine description |
+
+With `arecord` and a whisper-class binary installed (plus `$JARVIS_STT_MODEL`),
+a microphone button appears next to the console. It transcribes into the input
+field for you to review — it never submits on your behalf.
+
 ## Architecture
 
 QML owns presentation; Python owns data and policy. Nothing in QML reads `/proc`, and
@@ -146,11 +165,29 @@ python tools/generate_qmltypes.py
 
 ## Security posture
 
-- No network access and no API keys.
-- No shell execution: the console maps a fixed vocabulary onto in-process handlers,
-  and input is length-capped with control characters stripped.
+- **No shell, anywhere.** Every process is spawned with a program and an argument
+  list passed separately, so nothing can be word-split or injected. The console
+  maps a fixed vocabulary onto in-process handlers; input is length-capped with
+  control characters stripped.
 - `/proc` and `/sys` are read-only, through a single module, with a fixed path set.
-- Runtime dependencies: PySide6 only.
+- **The agent is opt-in and never starts itself.** Connecting spawns
+  `jarvis mcp serve`, or talks to a resident doorway the owner installed. Until
+  then the HUD is telemetry only.
+- **The GUI never widens the kernel's authority.** `allow: true` originates in
+  exactly one function, reachable only from a deliberate click in the consent
+  prompt. It is never defaulted, remembered, or inferred.
+- **Two confirmation gates, different in kind.** The kernel's tier-2 consent gate
+  cannot be disabled. A second, GUI-side gate pauses before actions the kernel
+  reports as not undoable — it adds friction, never authority, and clearing it
+  sends no consent. See [docs/BACKEND-BRIDGE.md](docs/BACKEND-BRIDGE.md).
+- **Network:** loopback only, and only in resident mode. Non-loopback endpoints
+  are refused before a request is built; the bearer token must be `0600` and is
+  sent only as a header, never in a URL or a log line.
+- **Voice, when enabled, cannot act.** A transcript is placed in the input field
+  for the owner to read and submit — never executed. Recorded audio is deleted
+  as soon as it is transcribed.
+- Runtime dependencies: PySide6 only. The kernel is a separate program reached
+  over a wire contract, not an imported package.
 
 ## Licensing
 

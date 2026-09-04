@@ -323,4 +323,34 @@ def summarise_success(payload: dict[str, Any]) -> str:
         if isinstance(status, str) and status:
             return f"Completed: {status}."
 
+    # jarvis_suggest: each entry is evidence-backed, and the evidence is the
+    # point. Titles alone would present the kernel's reasoning as a bare
+    # opinion, so the supporting detail is kept with each one.
+    suggestions = payload.get("suggestions")
+    if isinstance(suggestions, list):
+        if not suggestions:
+            return "No suggestions: nothing in the journal or context warrants one."
+        lines = []
+        for entry in suggestions[:8]:
+            if not isinstance(entry, dict):
+                continue
+            title = str(entry.get("title") or entry.get("id") or "").strip()
+            detail = str(entry.get("detail") or "").strip()
+            if title:
+                lines.append(f"{title} - {detail}" if detail else title)
+        if lines:
+            return "Suggestions: " + " | ".join(lines)
+
+    # jarvis_status: a flat machine description. Rendered as key=value pairs
+    # rather than raw JSON so it reads as a status line.
+    if "distro_name" in payload:
+        interesting = ("distro_name", "package_manager", "init_system", "python_version")
+        parts = [
+            f"{key.replace('_', ' ')}: {payload[key]}"
+            for key in interesting
+            if isinstance(payload.get(key), str)
+        ]
+        if parts:
+            return " | ".join(parts)
+
     return json.dumps(payload, separators=(",", ":"))

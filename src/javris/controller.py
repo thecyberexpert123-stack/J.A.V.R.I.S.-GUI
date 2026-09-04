@@ -11,7 +11,17 @@ from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
 from .attention import Alert, AttentionMonitor, MetricReading, Prominence
 from .bridge.client import KernelClient
+from .bridge.consent import (
+    ConfirmPolicy,
+    ConfirmRequest,
+    Gate,
+    needs_reversibility_confirmation,
+    reversibility_summary,
+)
+from .bridge.plan import Plan, known_playbooks, parse_plan
 from .bridge.protocol import Outcome, OutcomeKind
+from .bridge.resident_client import ResidentClient
+from .bridge.voice_client import VoiceClient
 from .commands.router import CommandRouter, Severity
 from .state import AssistantState, InvalidTransitionError, can_transition
 from .telemetry.models import TelemetrySnapshot
@@ -113,16 +123,51 @@ class HudController(QObject):
         # that silently spawned a privileged agent on launch would be exactly
         # the kind of surprise this project avoids.
         self._kernel = KernelClient(self)
-        self._kernel.connected.connect(self._on_kernel_connected)
-        self._kernel.disconnected.connect(self._on_kernel_disconnected)
-        self._kernel.completed.connect(self._on_kernel_completed)
-        self._kernel.started.connect(self._on_kernel_started)
-        #: Request awaiting the owner's decision, or an empty string.
-        self._pending_consent: str = ""
+        self._resident = ResidentClient(self)
+        #: The transport currently in use. Both expose the same signals, so
+        #: everything downstream of here is transport-agnostic.
+        self._transport: KernelClient | ResidentClient = self._kernel
+        for client in (self._kernel, self._resident):
+            client.connected.connect(self._on_kernel_connected)
+            client.disconnected.connect(self._on_kernel_disconnected)
+            client.completed.connect(self._on_kernel_completed)
+            client.started.connect(self._on_kernel_started)
+
+        #: Push-to-talk capture. Produces text for the console; never executes.
+        self._voice = VoiceClient(self)
+        self._voice.listening.connect(self._on_voice_listening)
+        self._voice.transcribing.connect(self._on_voice_transcribing)
+        self._voice.transcribed.connect(self._on_voice_transcribed)
+        self._voice.failed.connect(self._on_voice_failed)
+        #: Text handed back by the transcriber, for the console input to pick
+        #: up. Never auto-submitted -- speech can mishear.
+        self._dictation = ""
+
+        #: The question currently in front of the owner, or None.
+        self._confirm: ConfirmRequest | None = None
+        #: How much GUI-side friction to add. The kernel's own gate applies
+        #: under every setting; this only governs the reversibility gate.
+        self._confirm_policy = ConfirmPolicy.IRREVERSIBLE
+        #: Request text held between a gate-2 preview and its execution.
+        self._staged_request = ""
+        #: True while a resident connection attempt is outstanding. A stale
+        #: token file outlives the doorway it belonged to, so a failed resident
+        #: attempt falls back to spawning exactly once rather than leaving the
+        #: owner stuck with a transport that cannot work.
+        self._resident_attempt = False
+        #: Subject of the most recent bare `plan` verb.
+        self._last_preview_request = ""
         #: The most recent jarvis_do request text. Held so that a refusal can
         #: be re-sent verbatim after consent -- the owner must approve the
         #: exact request they were shown, never a reconstruction of it.
         self._last_do_request: str = ""
+        #: The most recent plan, kept so the UI can show what was reviewed.
+        self._last_plan: Plan | None = None
+        #: The request text `_last_plan` describes. A plan is only ever shown
+        #: beside the request it was computed for -- displaying a stale plan
+        #: next to a different request would have the owner approving one
+        #: thing while reading another.
+        self._last_plan_request = ""
         self._log: list[str] = []
         self._windowed = False
         self._attention = AttentionMonitor()
@@ -323,6 +368,8 @@ class HudController(QObject):
         self.append_log(result.severity, result.message)
         if result.mode is not None and result.mode != self._mode:
             self._set_mode(result.mode)
+        if result.confirm_policy:
+            self.setConfirmPolicy(result.confirm_policy)
         if result.agent_disconnect:
             self._disconnect_agent()
         if result.agent_tool is not None:
@@ -594,77 +641,318 @@ class HudController(QObject):
 
     agentChanged = Signal()
     consentChanged = Signal()
+    voiceChanged = Signal()
+    planChanged = Signal()
 
     @Property(bool, notify=agentChanged)
     def agentConnected(self) -> bool:  # noqa: N802
-        """True once the kernel handshake has completed."""
-        return self._kernel.ready
+        """True once the active transport is ready."""
+        return self._transport.ready
 
     @Property(str, notify=agentChanged)
     def agentVersion(self) -> str:  # noqa: N802
         """Kernel version string, or empty when not connected."""
-        return self._kernel.version
+        return self._transport.version
 
     @Property(bool, notify=agentChanged)
     def agentAvailable(self) -> bool:  # noqa: N802
-        """True when a jarvis executable exists on PATH."""
+        """True when the kernel can be spawned on demand."""
         return KernelClient.available()
+
+    @Property(bool, notify=agentChanged)
+    def residentAvailable(self) -> bool:  # noqa: N802
+        """True when a resident doorway is configured for this account.
+
+        Only true once the owner has run ``jarvis serve install``; resident
+        mode is never assumed.
+        """
+        return self._resident.available()
+
+    @Property(str, notify=agentChanged)
+    def agentTransport(self) -> str:  # noqa: N802
+        """Which transport is active: ``RESIDENT`` or ``ON_DEMAND``."""
+        return "RESIDENT" if self._transport is self._resident else "ON_DEMAND"
+
+    # -- consent and confirmation ---------------------------------------------
 
     @Property(str, notify=consentChanged)
     def pendingConsent(self) -> str:  # noqa: N802
         """The request awaiting an owner decision, or an empty string.
 
-        While this is non-empty the UI must show a consent prompt. It is the
-        only path by which ``allow: true`` can ever be sent.
+        While this is non-empty the UI must show the prompt. For the kernel
+        gate it is the only path by which ``allow: true`` can ever be sent.
         """
-        return self._pending_consent
+        return self._confirm.request if self._confirm else ""
+
+    @Property(str, notify=consentChanged)
+    def consentGate(self) -> str:  # noqa: N802
+        """Which gate is asking: ``KERNEL_CONSENT`` or ``REVERSIBILITY``.
+
+        The UI styles these differently on purpose. One grants the kernel
+        authority it does not otherwise have; the other is the GUI pausing
+        before something that cannot be undone. Presenting them identically
+        would devalue the one that carries real authority.
+        """
+        return self._confirm.gate.value if self._confirm else ""
+
+    @Property(str, notify=consentChanged)
+    def consentHeadline(self) -> str:  # noqa: N802
+        """One line stating what is being asked, and why."""
+        return self._confirm.headline if self._confirm else ""
+
+    @Property(str, notify=consentChanged)
+    def consentHint(self) -> str:  # noqa: N802
+        """The kernel's own next-step hint, when it supplied one."""
+        return self._confirm.hint if self._confirm else ""
+
+    @Property(str, notify=consentChanged)
+    def confirmPolicy(self) -> str:  # noqa: N802
+        """The active reversibility policy."""
+        return self._confirm_policy.value
+
+    @Slot(str, result=bool)
+    def setConfirmPolicy(self, name: str) -> bool:  # noqa: N802
+        """Change the GUI-side confirmation policy.
+
+        Rejects an unknown name rather than silently falling back, because a
+        typo that quietly disabled a safety prompt would be the worst possible
+        failure mode for this setting.
+        """
+        try:
+            policy = ConfirmPolicy(name.upper())
+        except ValueError:
+            self.append_log(Severity.ERROR, f"Unknown confirmation policy: {name}")
+            return False
+        self._confirm_policy = policy
+        self.append_log(Severity.INFO, f"Confirmation policy: {policy.value}.")
+        self.consentChanged.emit()
+        return True
+
+    # -- plan review -----------------------------------------------------------
+
+    def _plan_for_prompt(self) -> Plan | None:
+        """The plan to display beside the current prompt, if it matches it.
+
+        Returns None when the cached plan describes a different request. Under
+        the ``kernel-only`` policy no preview is run before a mutation, so a
+        plan left over from an earlier command would otherwise be rendered
+        beside an unrelated consent prompt -- the owner would be reading one
+        command while approving another.
+        """
+        if self._last_plan is None:
+            return None
+        if self._confirm is not None and self._confirm.request != self._last_plan_request:
+            return None
+        return self._last_plan
+
+    @Property(bool, notify=planChanged)
+    def planAvailable(self) -> bool:  # noqa: N802
+        """True when a previewed plan is ready to display."""
+        plan = self._plan_for_prompt()
+        return plan is not None and not plan.is_empty
+
+    @Property(str, notify=planChanged)
+    def planPlaybook(self) -> str:  # noqa: N802
+        """The matched playbook id, or empty when nothing matched."""
+        plan = self._plan_for_prompt()
+        return plan.playbook if plan else ""
+
+    @Property(int, notify=planChanged)
+    def planTier(self) -> int:  # noqa: N802
+        """The plan's safety tier, or -1 when unknown."""
+        plan = self._plan_for_prompt()
+        if plan is None or plan.tier is None:
+            return -1
+        return plan.tier
+
+    @Property(bool, notify=planChanged)
+    def planIrreversible(self) -> bool:  # noqa: N802
+        """True when the kernel reports no way to undo this plan."""
+        plan = self._plan_for_prompt()
+        return plan.irreversible if plan else False
+
+    @Property(str, notify=planChanged)
+    def planUndoReason(self) -> str:  # noqa: N802
+        """The kernel's own words about reversibility."""
+        plan = self._plan_for_prompt()
+        return reversibility_summary(plan) if plan else ""
+
+    @Property(list, notify=planChanged)
+    def planSteps(self) -> list[str]:  # noqa: N802
+        """Plan steps as ``description\x1fargv\x1froot`` rows.
+
+        Unit-separated for the same reason the log is: it cannot occur in the
+        payload text, so no description can forge a column break.
+        """
+        plan = self._plan_for_prompt()
+        if plan is None:
+            return []
+        return [
+            f"{step.description}\x1f{step.command_line}\x1f{'1' if step.requires_root else '0'}"
+            for step in plan.steps
+        ]
+
+    @Property(list, notify=planChanged)
+    def planBlast(self) -> list[str]:  # noqa: N802
+        """Blast-radius facts as ``label\x1fvalue`` rows, omitting the empty."""
+        plan = self._plan_for_prompt()
+        if plan is None:
+            return []
+        blast = plan.blast
+        rows: list[tuple[str, str]] = []
+        if blast.commands:
+            rows.append(("COMMANDS", ", ".join(blast.commands)))
+        rows.append(("ROOT", "required" if blast.requires_root else "not required"))
+        rows.append(("NETWORK", "yes" if blast.network else "no"))
+        if blast.paths:
+            rows.append(("PATHS", ", ".join(blast.paths)))
+        return [f"{label}\x1f{value}" for label, value in rows]
+
+    # -- voice -----------------------------------------------------------------
+
+    @Property(bool, notify=voiceChanged)
+    def voiceAvailable(self) -> bool:  # noqa: N802
+        """True when this machine can turn speech into text."""
+        return self._voice.available()
+
+    @Property(str, notify=voiceChanged)
+    def voiceStatus(self) -> str:  # noqa: N802
+        """Why voice is unavailable, or that it is available."""
+        return self._voice.explain_unavailable()
+
+    @Property(str, notify=voiceChanged)
+    def dictation(self) -> str:
+        """The last transcript, for the console input to adopt.
+
+        Handed to the input field, never submitted. Speech is treated as a
+        keyboard that can mishear.
+        """
+        return self._dictation
+
+    @Slot()
+    def startDictation(self) -> None:  # noqa: N802
+        """Begin a push-to-talk capture."""
+        self._voice.refresh()
+        if not self._voice.available():
+            self.append_log(Severity.WARN, self._voice.explain_unavailable())
+            self.voiceChanged.emit()
+            return
+        self._voice.start()
+
+    @Slot()
+    def cancelDictation(self) -> None:  # noqa: N802
+        """Abandon a capture in progress."""
+        self._voice.cancel()
+
+    def _on_voice_listening(self) -> None:
+        self.append_log(Severity.INFO, "Listening...")
+        self._request_state_quietly(AssistantState.LISTENING)
+        self.voiceChanged.emit()
+
+    def _on_voice_transcribing(self) -> None:
+        self._request_state_quietly(AssistantState.PROCESSING)
+        self.voiceChanged.emit()
+
+    def _on_voice_transcribed(self, text: str) -> None:
+        self._dictation = text
+        # Logged as a quotation, and deliberately not run: the owner reads it
+        # in the input field and decides. A misheard word must never become an
+        # executed request.
+        self.append_log(Severity.INFO, f'Heard: "{text}" - review it, then press Enter.')
+        self._request_state_quietly(AssistantState.STANDBY)
+        self.voiceChanged.emit()
+
+    def _on_voice_failed(self, reason: str) -> None:
+        self.append_log(Severity.WARN, reason)
+        self._request_state_quietly(AssistantState.STANDBY)
+        self.voiceChanged.emit()
+
+    # -- connection ------------------------------------------------------------
 
     @Slot()
     def connectAgent(self) -> None:  # noqa: N802
-        """Spawn the kernel and begin the handshake."""
-        if self._kernel.ready:
+        """Connect using the best available transport.
+
+        Resident mode is preferred when the owner has installed it, because it
+        means not spawning a process at all. Otherwise the kernel is spawned on
+        demand. Either way it takes this explicit call.
+        """
+        if self._transport.ready:
             self.append_log(Severity.INFO, "Agent already connected.")
             return
-        self.append_log(Severity.INFO, "Connecting to the JARVIS kernel...")
+
+        if self._resident.available():
+            self._transport = self._resident
+            self._resident_attempt = True
+            self.append_log(
+                Severity.INFO, f"Connecting to the resident kernel at {self._resident.endpoint}..."
+            )
+        else:
+            self._transport = self._kernel
+            self._resident_attempt = False
+            self.append_log(Severity.INFO, "Starting the JARVIS kernel on demand...")
+
+        self.agentChanged.emit()
         self._request_state_quietly(AssistantState.PROCESSING)
-        if not self._kernel.start():
+        if not self._transport.start():
             self._request_state_quietly(AssistantState.OFFLINE)
 
     @Slot()
     def approveConsent(self) -> None:  # noqa: N802
-        """Re-send the pending request with the owner's explicit consent.
+        """Answer the pending question affirmatively.
 
-        This is the *only* place ``allow=True`` originates, and it is reachable
-        only from a deliberate UI action. It clears the pending request first,
-        so one approval can authorise exactly one call.
+        What that means depends on which gate asked, and the difference is
+        preserved exactly:
+
+        * **Kernel gate** -- re-send the request with ``allow=True``. This is
+          the *only* place that flag originates, and it is reachable only from
+          a deliberate UI action.
+        * **Reversibility gate** -- send the request *without* ``allow``. The
+          owner has acknowledged that it cannot be undone; they have not
+          granted the kernel any additional authority, and if the kernel then
+          wants consent it will ask through the first gate.
         """
-        request = self._pending_consent
-        if not request:
+        pending = self._confirm
+        if pending is None:
             return
-        self._pending_consent = ""
+        request = pending.request
+        gate = pending.gate
+        self._confirm = None
         self.consentChanged.emit()
-        self.append_log(Severity.WARN, f"Consent given. Executing: {request}")
+
+        if gate is Gate.KERNEL_CONSENT:
+            self.append_log(Severity.WARN, f"Consent given. Executing: {request}")
+            self._request_state_quietly(AssistantState.EXECUTING)
+            if not self._transport.execute(request, allow=True, tag="do"):
+                self.append_log(Severity.ERROR, "The agent is not connected.")
+                self._request_state_quietly(AssistantState.ERROR)
+            return
+
+        # Reversibility gate: acknowledged, but no authority is added here.
+        self.append_log(Severity.INFO, f"Acknowledged. Running: {request}")
+        self._last_do_request = request
         self._request_state_quietly(AssistantState.EXECUTING)
-        if not self._kernel.execute(request, allow=True, tag="do"):
+        if not self._transport.execute(request, allow=False, tag="do"):
             self.append_log(Severity.ERROR, "The agent is not connected.")
             self._request_state_quietly(AssistantState.ERROR)
 
     @Slot()
     def declineConsent(self) -> None:  # noqa: N802
-        """Dismiss the consent prompt without acting."""
-        if not self._pending_consent:
+        """Dismiss the prompt without acting."""
+        if self._confirm is None:
             return
-        self._pending_consent = ""
+        self._confirm = None
+        self._staged_request = ""
         self.consentChanged.emit()
         self.append_log(Severity.INFO, "Declined. Nothing was run.")
         self._request_state_quietly(AssistantState.STANDBY)
 
     def _disconnect_agent(self) -> None:
-        self._kernel.stop()
+        self._transport.stop()
 
     def _dispatch_agent(self, tool: str, argument: str) -> None:
         """Send one tool call on behalf of a console verb."""
-        if not self._kernel.ready:
+        if not self._transport.ready:
             self.append_log(
                 Severity.ERROR,
                 "The agent is not connected. Use the connect action first.",
@@ -673,30 +961,53 @@ class HudController(QObject):
 
         self._request_state_quietly(AssistantState.PROCESSING)
         if tool == "jarvis_do":
-            # Never pre-authorised: the kernel decides whether this needs
-            # consent, and only approveConsent() may answer that question.
-            self._last_do_request = argument
-            self._kernel.execute(argument, allow=False, tag="do")
+            # Gate 2: preview first so the kernel can tell us whether this can
+            # be undone. The preview is read-only and changes nothing.
+            if self._confirm_policy is ConfirmPolicy.KERNEL_ONLY:
+                self._last_do_request = argument
+                self._transport.execute(argument, allow=False, tag="do")
+                return
+            self._staged_request = argument
+            self._transport.call("jarvis_preview", {"request": argument}, tag="preview-before-do")
         elif tool == "jarvis_explain":
-            self._kernel.call(tool, {"question": argument}, tag="explain")
+            self._transport.call(tool, {"question": argument}, tag="explain")
         elif tool == "jarvis_preview":
-            self._kernel.call(tool, {"request": argument}, tag="preview")
+            self._last_preview_request = argument
+            self._transport.call(tool, {"request": argument}, tag="preview")
         else:
-            self._kernel.call(tool, {}, tag=tool)
+            self._transport.call(tool, {}, tag=tool)
 
     def _on_kernel_started(self, _tag: str) -> None:
         self._request_state_quietly(AssistantState.PROCESSING)
 
     def _on_kernel_connected(self, version: str) -> None:
-        self.append_log(Severity.OK, f"Agent connected. Kernel {version}.")
+        self._resident_attempt = False
+        label = f"Kernel {version}." if version else "Kernel version unreported."
+        transport = "resident" if self._transport is self._resident else "on-demand"
+        self.append_log(Severity.OK, f"Agent connected ({transport}). {label}")
         self.agentChanged.emit()
         self._request_state_quietly(AssistantState.STANDBY)
 
     def _on_kernel_disconnected(self, reason: str) -> None:
         self.append_log(Severity.WARN, reason)
         self.agentChanged.emit()
-        if self._pending_consent:
-            self._pending_consent = ""
+
+        # A token file outlives the doorway that wrote it, so "resident is
+        # configured" does not mean "resident is running". Fall back to
+        # spawning once rather than leaving the owner on a dead transport.
+        if self._resident_attempt and not self._kernel.ready:
+            self._resident_attempt = False
+            if KernelClient.available():
+                self._transport = self._kernel
+                self.append_log(Severity.INFO, "Falling back to starting the kernel on demand...")
+                self.agentChanged.emit()
+                self._request_state_quietly(AssistantState.PROCESSING)
+                if not self._transport.start():
+                    self._request_state_quietly(AssistantState.OFFLINE)
+                return
+        if self._confirm is not None:
+            self._confirm = None
+            self._staged_request = ""
             self.consentChanged.emit()
         # Telemetry keeps running: losing the agent must never take the HUD
         # down with it (honest degradation, never a faked agent).
@@ -704,6 +1015,17 @@ class HudController(QObject):
 
     def _on_kernel_completed(self, tag: str, outcome: Outcome) -> None:
         """Render one tool result and move the state machine accordingly."""
+        if tag in ("preview", "preview-before-do"):
+            self._last_plan = parse_plan(outcome.payload)
+            self._last_plan_request = (
+                self._staged_request if tag == "preview-before-do" else self._last_preview_request
+            )
+            self.planChanged.emit()
+
+        if tag == "preview-before-do":
+            self._resolve_staged_request(outcome)
+            return
+
         if outcome.kind is OutcomeKind.REFUSED:
             self.append_log(Severity.WARN, outcome.text)
             if outcome.hint:
@@ -712,7 +1034,15 @@ class HudController(QObject):
                 # Hold the request so approveConsent() has something to send.
                 # Storing the text is not authorisation; only the owner's
                 # action is.
-                self._pending_consent = self._last_do_request
+                self._confirm = ConfirmRequest(
+                    gate=Gate.KERNEL_CONSENT,
+                    request=self._last_do_request,
+                    plan=self._last_plan
+                    if self._last_plan_request == self._last_do_request
+                    else None,
+                    hint=outcome.hint,
+                    tier=outcome.tier,
+                )
                 self.consentChanged.emit()
             self._request_state_quietly(AssistantState.STANDBY)
             return
@@ -725,6 +1055,55 @@ class HudController(QObject):
         self._request_state_quietly(AssistantState.SPEAKING)
         self.append_log(Severity.OK, outcome.text)
         self._request_state_quietly(AssistantState.STANDBY)
+
+    def _resolve_staged_request(self, outcome: Outcome) -> None:
+        """Decide what to do with a `do` whose preview has just returned.
+
+        Three outcomes, and the unmatched case is the one most easily got
+        wrong: the kernel answers an unmappable request with ``isError`` and an
+        anti-hallucination message. That is the kernel refusing to guess, which
+        is a feature. Sending the request anyway would produce the identical
+        refusal a second time, so it is reported and dropped.
+        """
+        request = self._staged_request
+        self._staged_request = ""
+        plan = self._last_plan
+
+        if plan is not None and plan.unmatched:
+            self.append_log(Severity.WARN, plan.error or "The kernel could not map that request.")
+            names = known_playbooks(plan.hint)
+            if names:
+                self.append_log(
+                    Severity.INFO,
+                    f"{len(names)} known playbooks, including: " + ", ".join(names[:8]) + ".",
+                )
+            elif plan.hint:
+                self.append_log(Severity.INFO, plan.hint)
+            self._request_state_quietly(AssistantState.STANDBY)
+            return
+
+        if outcome.kind is OutcomeKind.PROTOCOL_ERROR:
+            self.append_log(Severity.ERROR, outcome.text)
+            self._request_state_quietly(AssistantState.ERROR)
+            return
+
+        if plan is not None and needs_reversibility_confirmation(plan, self._confirm_policy):
+            self._confirm = ConfirmRequest(
+                gate=Gate.REVERSIBILITY,
+                request=request,
+                plan=plan,
+                hint=reversibility_summary(plan),
+                tier=plan.tier,
+            )
+            self.consentChanged.emit()
+            self._request_state_quietly(AssistantState.STANDBY)
+            return
+
+        # Reversible (or policy says don't ask): send it. The kernel's own gate
+        # still applies and will refuse a T2 request without consent.
+        self._last_do_request = request
+        self._request_state_quietly(AssistantState.EXECUTING)
+        self._transport.execute(request, allow=False, tag="do")
 
     def _request_state_quietly(self, target: AssistantState) -> None:
         """Move to ``target`` when the transition table permits it.

@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
+from typing import ClassVar
 
 #: Hard cap on accepted input length. Longer input is rejected outright rather
 #: than truncated, so a command is never silently reinterpreted.
@@ -43,6 +44,9 @@ class CommandResult:
     agent_argument: str = ""
     #: True when the verb asks to close the agent connection.
     agent_disconnect: bool = False
+    #: New GUI-side confirmation policy, when the command changes it. This
+    #: never alters kernel authority -- only how much the GUI asks first.
+    confirm_policy: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +104,16 @@ class CommandRouter:
                 "agent",
                 "Agent connection: agent status | agent disconnect.",
                 CommandRouter._cmd_agent,
+            ),
+            CommandSpec(
+                "suggest",
+                "Evidence-backed suggestions from the agent: suggest.",
+                CommandRouter._cmd_suggest,
+            ),
+            CommandSpec(
+                "confirm",
+                "Confirmation policy: confirm irreversible | always | kernel-only.",
+                CommandRouter._cmd_confirm,
             ),
         ):
             self._specs[spec.verb] = spec
@@ -207,6 +221,42 @@ class CommandRouter:
             f"Sending to the agent: {request}",
             agent_tool="jarvis_do",
             agent_argument=request,
+        )
+
+    def _cmd_suggest(self, args: tuple[str, ...]) -> CommandResult:
+        if args:
+            return CommandResult(Severity.WARN, "Usage: suggest")
+        return CommandResult(
+            Severity.INFO,
+            "Asking the agent for suggestions.",
+            agent_tool="jarvis_suggest",
+        )
+
+    #: Console spellings of the confirmation policies. Hyphenated for typing;
+    #: mapped to the enum's names rather than guessed at by the controller.
+    _CONFIRM_POLICIES: ClassVar[dict[str, str]] = {
+        "irreversible": "IRREVERSIBLE",
+        "always": "ALWAYS",
+        "kernel-only": "KERNEL_ONLY",
+        "kernel_only": "KERNEL_ONLY",
+    }
+
+    def _cmd_confirm(self, args: tuple[str, ...]) -> CommandResult:
+        if not args:
+            return CommandResult(
+                Severity.WARN,
+                "Usage: confirm irreversible | always | kernel-only",
+            )
+        policy = self._CONFIRM_POLICIES.get(args[0].lower())
+        if policy is None:
+            return CommandResult(
+                Severity.ERROR,
+                f"Unknown policy '{args[0]}'. Use: irreversible | always | kernel-only.",
+            )
+        return CommandResult(
+            Severity.INFO,
+            "Updating the confirmation policy.",
+            confirm_policy=policy,
         )
 
     def _cmd_agent(self, args: tuple[str, ...]) -> CommandResult:

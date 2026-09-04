@@ -7,6 +7,34 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Resident-mode transport** (`bridge/resident.py`, `bridge/resident_client.py`).
+  Optional connection to the kernel's loopback doorway (ADR-0018) instead of
+  spawning a process, preferred automatically when the owner has run
+  `jarvis serve install`. Loopback-only by refusal, 0600 token enforced, token
+  sent only as a header. The HTTP envelope is normalised into the stdio shape so
+  `classify_outcome` stays the single implementation of the refusal-versus-
+  failure distinction. Uses `QtNetwork` from PySide6-Essentials — no new
+  dependency.
+- **Structured plan review** (`bridge/plan.py`). `jarvis_preview` returns steps,
+  exact argv, per-step tier and root requirement, blast radius (commands, paths,
+  network) and an `undo` verdict; all of it is now rendered instead of being
+  flattened into one console line. The argv is shown unquoted because the kernel
+  never uses a shell.
+- **The hybrid consent gate** (`bridge/consent.py`). Two gates, deliberately
+  different in kind: the kernel's tier-2 consent gate (grants authority, cannot
+  be disabled) and a GUI reversibility gate (acknowledges risk, grants nothing,
+  owner-configurable). The second exists because live probing found
+  `do remove the file /tmp/x` to be **tier 1** — executed immediately, no
+  prompt, `undo: unavailable`. Driven entirely by the kernel's own `undo`
+  field, never by pattern-matching request text.
+- **Push-to-talk voice input** (`bridge/voice.py`, `bridge/voice_client.py`,
+  `MicButton.qml`). Records and transcribes, then puts the text **in the input
+  field** — never executes it. The kernel's own `voice ask` is deliberately not
+  used because it runs the transcript directly, which would bypass both gates.
+  Hidden entirely when the machine cannot transcribe.
+- Console verbs `suggest` and `confirm irreversible|always|kernel-only`.
+- Readable rendering for `jarvis_suggest` (evidence-backed entries) and
+  `jarvis_status` (machine description) instead of raw JSON.
 - **Backend bridge to the J.A.V.R.I.S. kernel** (`src/javris/bridge/`). This GUI
   is now the front-end for the sibling `jarvis-agent` backend, speaking its
   published `javris-frontend/1` contract over newline-delimited JSON-RPC on
@@ -23,7 +51,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   machine is the owner's decision.
 - `docs/BACKEND-BRIDGE.md` — the wiring contract as *verified against a running
   kernel*, including the places where live behaviour differs from a first
-  reading of the backend's docs.
+  reading of the backend's docs. Re-verified against 1.18.0 and extended with
+  the resident doorway's probed security posture, the hybrid gate, plan review
+  and the voice boundary.
 - **`TaperedArc`** — an arc whose stroke fades along its own length. Qt Quick
   has no per-length stroke gradient, so this builds the effect from short
   overlapping segments on an eased opacity profile. Uniform arcs read as hard
@@ -38,6 +68,19 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   deceleration reads as the element visibly arriving rather than settling.
 
 ### Changed
+- **The consent prompt now shows the plan**, not just the request: the exact
+  argv that will run, per-step root requirement, tier badge, playbook id and
+  blast radius. Approving a change you cannot see is not informed consent.
+- **The two gates are visually distinct.** Kernel consent is error-red with
+  "APPROVE AND RUN"; the reversibility warning is amber with "RUN ANYWAY".
+  Presenting them identically would train the owner to read both as the same
+  kind of warning and devalue the one carrying real authority.
+- `do` now previews before executing (unless the policy is `kernel-only`), so
+  the reversibility gate can see the kernel's `undo` verdict. The preview is
+  read-only and changes nothing.
+- An unmatched request no longer reports as a failure. The kernel's
+  anti-hallucination refusal is shown as a refusal, with the count and first
+  several of its 57 known playbooks.
 - **Glow is no longer applied uniformly.** Panels do not light by default; they
   gained an `attention` property and emit only when they have something to say.
   The vitals rail lights while a condition is escalated, and the console lights

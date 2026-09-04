@@ -134,6 +134,13 @@ Item {
         anchors.fill: parent
         z: 100
         request: hudSurface.controller.pendingConsent
+        gate: hudSurface.controller.consentGate
+        headline: hudSurface.controller.consentHeadline
+        hint: hudSurface.controller.consentHint
+        steps: hudSurface.controller.planSteps
+        blast: hudSurface.controller.planBlast
+        tier: hudSurface.controller.planTier
+        playbook: hudSurface.controller.planPlaybook
         onApproved: hudSurface.controller.approveConsent()
         onDeclined: hudSurface.controller.declineConsent()
     }
@@ -573,7 +580,7 @@ Item {
 
                 TextField {
                     id: input
-                    width: parent.width - 20
+                    width: parent.width - 20 - (micButton.visible ? micButton.width + Theme.spaceSm : 0)
                     placeholderText: "Enter command. Type 'help' for the list."
                     color: Theme.textPrimary
                     placeholderTextColor: Theme.textMuted
@@ -591,6 +598,41 @@ Item {
                         if (text.trim().length > 0) {
                             hudSurface.controller.submitCommand(text);
                             text = "";
+                        }
+                    }
+
+                    // A transcript is placed in the field for the owner to
+                    // read and submit. It is deliberately NOT auto-accepted:
+                    // speech can mishear, and a misheard word must never
+                    // become a sent request.
+                    Connections {
+                        target: hudSurface.controller
+
+                        function onVoiceChanged() {
+                            const heard = hudSurface.controller.dictation;
+                            if (heard.length > 0 && heard !== input.text) {
+                                input.text = heard;
+                                input.forceActiveFocus();
+                                input.cursorPosition = heard.length;
+                            }
+                        }
+                    }
+                }
+
+                // Push-to-talk. Hidden entirely when this machine cannot
+                // transcribe: an inert button that silently does nothing is
+                // worse than no button, and the reason is available in the
+                // tooltip and via the log.
+                MicButton {
+                    id: micButton
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: hudSurface.controller.voiceAvailable
+                    listening: hudSurface.controller.state === "LISTENING"
+                    onTriggered: {
+                        if (listening) {
+                            hudSurface.controller.cancelDictation();
+                        } else {
+                            hudSurface.controller.startDictation();
                         }
                     }
                 }
