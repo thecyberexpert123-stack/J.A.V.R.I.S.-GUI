@@ -13,6 +13,7 @@ from .attention import Alert, AttentionMonitor, MetricReading, Prominence
 from .commands.router import CommandRouter, Severity
 from .state import AssistantState, InvalidTransitionError, can_transition
 from .telemetry.models import TelemetrySnapshot
+from .telemetry.proc_reader import ProcReader
 from .telemetry.service import MIN_INTERVAL_MS, TelemetrySampler
 
 #: Duration of the boot sequence before the HUD settles into standby.
@@ -101,6 +102,9 @@ class HudController(QObject):
         self._state = AssistantState.BOOTING
         self._mode = _MODES[0]
         self._snapshot = TelemetrySnapshot(monotonic_time=0.0)
+        # Static host facts, read once: these cannot change while we run, so
+        # polling them every frame would be waste.
+        self._identity = ProcReader().read_host_identity()
         self._log: list[str] = []
         self._windowed = False
         self._attention = AttentionMonitor()
@@ -485,3 +489,81 @@ class HudController(QObject):
     def alertFraction(self) -> float:  # noqa: N802
         """Normalised 0.0-1.0 value of the escalated condition; -1.0 when none."""
         return -1.0 if self._alert is None else self._alert.fraction
+
+    # -- battery ------------------------------------------------------------
+
+    @Property(bool, notify=snapshotChanged)
+    def batteryPresent(self) -> bool:  # noqa: N802
+        """True when this host actually has a battery.
+
+        Desktops, virtual machines and containers have none. The UI hides the
+        whole readout rather than showing an empty or full cell.
+        """
+        return self._snapshot.battery is not None
+
+    @Property(float, notify=snapshotChanged)
+    def batteryFraction(self) -> float:  # noqa: N802
+        """Charge as a 0.0-1.0 fraction; -1.0 when absent or unreadable."""
+        battery = self._snapshot.battery
+        if battery is None or battery.percent is None:
+            return -1.0
+        return battery.percent / 100.0
+
+    @Property(str, notify=snapshotChanged)
+    def batteryText(self) -> str:  # noqa: N802
+        """Charge percentage, formatted for display."""
+        battery = self._snapshot.battery
+        if battery is None or battery.percent is None:
+            return "--"
+        return f"{battery.percent:.0f} %"
+
+    @Property(str, notify=snapshotChanged)
+    def batteryState(self) -> str:  # noqa: N802
+        """``CHARGING``, ``DISCHARGING``, or ``UNKNOWN``.
+
+        An unknown kernel status is reported as unknown rather than guessed:
+        showing "discharging" on a machine that is plugged in would be a lie
+        about the one thing this readout exists to convey.
+        """
+        battery = self._snapshot.battery
+        if battery is None or battery.charging is None:
+            return "UNKNOWN"
+        return "CHARGING" if battery.charging else "DISCHARGING"
+
+    @Property(str, notify=snapshotChanged)
+    def batteryRuntimeText(self) -> str:  # noqa: N802
+        """Estimated time to empty, or an empty string when not measurable."""
+        battery = self._snapshot.battery
+        if battery is None or battery.seconds_remaining is None:
+            return ""
+        return format_duration(battery.seconds_remaining)
+
+    # -- host identity -------------------------------------------------------
+
+    @Property(list, constant=True)
+    def hostFacts(self) -> list[str]:  # noqa: N802
+        """Static machine facts as ``label\\x1fvalue`` rows.
+
+        Only genuinely readable facts appear. A host that exposes no CPU model
+        simply yields fewer rows -- there is no placeholder text, and nothing
+        here is invented. This is the honest counterpart to a "PC SPECS" panel
+        listing fictional hardware.
+        """
+        identity = self._identity
+        rows: list[tuple[str, str | None]] = [
+            ("HOST", identity.hostname),
+            ("OS", identity.os_name),
+            ("KERNEL", identity.kernel_release),
+            ("PROCESSOR", identity.cpu_model),
+            (
+                "LOGICAL CORES",
+                None if identity.cpu_cores is None else str(identity.cpu_cores),
+            ),
+            (
+                "MEMORY",
+                None
+                if identity.memory_total_bytes is None
+                else format_bytes(identity.memory_total_bytes),
+            ),
+        ]
+        return [f"{label}\x1f{value}" for label, value in rows if value]

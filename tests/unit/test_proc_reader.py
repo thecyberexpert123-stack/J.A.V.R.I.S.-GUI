@@ -239,3 +239,135 @@ def test_disks_respects_limit(tmp_path: Path) -> None:
         points.append(f"/dev/sd{index} {mount} ext4 rw 0 0")
     (proc / "mounts").write_text("\n".join(points) + "\n")
     assert len(ProcReader(proc_root=proc).disks(limit=2)) == 2
+
+
+# -- battery ---------------------------------------------------------------
+
+
+def _make_supply(root: Path, name: str, **fields: str) -> Path:
+    """Create a synthetic /sys/class/power_supply entry."""
+    supply = root / "class" / "power_supply" / name
+    supply.mkdir(parents=True, exist_ok=True)
+    for key, value in fields.items():
+        (supply / key).write_text(value)
+    return supply
+
+
+def test_battery_absent_on_hosts_without_one(missing: ProcReader) -> None:
+    assert missing.read_battery() is None
+
+
+def test_battery_reads_capacity_and_charging_state(tmp_path: Path) -> None:
+    _make_supply(tmp_path, "BAT0", type="Battery\n", capacity="64\n", status="Charging\n")
+    battery = ProcReader(sys_root=tmp_path).read_battery()
+    assert battery is not None
+    assert battery.percent == pytest.approx(64.0)
+    assert battery.charging is True
+
+
+def test_battery_ignores_non_battery_supplies(tmp_path: Path) -> None:
+    # A wireless mouse at 40% must never be read as the machine's own charge.
+    _make_supply(tmp_path, "AC", type="Mains\n", online="1\n")
+    _make_supply(tmp_path, "hidpp_battery_0", type="HID\n", capacity="40\n")
+    assert ProcReader(sys_root=tmp_path).read_battery() is None
+
+
+def test_battery_prefers_the_real_battery_over_a_peripheral(tmp_path: Path) -> None:
+    _make_supply(tmp_path, "hidpp_battery_0", type="HID\n", capacity="40\n")
+    _make_supply(tmp_path, "BAT0", type="Battery\n", capacity="88\n", status="Discharging\n")
+    battery = ProcReader(sys_root=tmp_path).read_battery()
+    assert battery is not None
+    assert battery.percent == pytest.approx(88.0)
+
+
+def test_battery_unknown_status_is_reported_as_unknown(tmp_path: Path) -> None:
+    _make_supply(tmp_path, "BAT0", type="Battery\n", capacity="50\n", status="Unknown\n")
+    battery = ProcReader(sys_root=tmp_path).read_battery()
+    assert battery is not None
+    assert battery.charging is None, "an unknown status must not be guessed as discharging"
+
+
+def test_battery_clamps_worn_cell_over_one_hundred(tmp_path: Path) -> None:
+    _make_supply(tmp_path, "BAT0", type="Battery\n", capacity="103\n", status="Full\n")
+    battery = ProcReader(sys_root=tmp_path).read_battery()
+    assert battery is not None
+    assert battery.percent == pytest.approx(100.0)
+
+
+def test_battery_runtime_estimated_from_charge_and_current(tmp_path: Path) -> None:
+    _make_supply(
+        tmp_path,
+        "BAT0",
+        type="Battery\n",
+        capacity="50\n",
+        status="Discharging\n",
+        charge_now="3000000\n",
+        current_now="1500000\n",
+    )
+    battery = ProcReader(sys_root=tmp_path).read_battery()
+    assert battery is not None
+    # 3000000 uAh at 1500000 uA is exactly two hours.
+    assert battery.seconds_remaining == pytest.approx(7200.0)
+
+
+def test_battery_runtime_absent_while_charging(tmp_path: Path) -> None:
+    _make_supply(
+        tmp_path,
+        "BAT0",
+        type="Battery\n",
+        capacity="50\n",
+        status="Charging\n",
+        charge_now="3000000\n",
+        current_now="1500000\n",
+    )
+    battery = ProcReader(sys_root=tmp_path).read_battery()
+    assert battery is not None
+    assert battery.seconds_remaining is None, "time-to-empty is meaningless while charging"
+
+
+def test_battery_runtime_absent_at_zero_draw(tmp_path: Path) -> None:
+    # Dividing by a zero rate would be an infinite runtime, not an unknown one.
+    _make_supply(
+        tmp_path,
+        "BAT0",
+        type="Battery\n",
+        capacity="50\n",
+        status="Discharging\n",
+        charge_now="3000000\n",
+        current_now="0\n",
+    )
+    battery = ProcReader(sys_root=tmp_path).read_battery()
+    assert battery is not None
+    assert battery.seconds_remaining is None
+
+
+def test_battery_accepts_energy_and_power_counters(tmp_path: Path) -> None:
+    _make_supply(
+        tmp_path,
+        "BAT0",
+        type="Battery\n",
+        capacity="50\n",
+        status="Discharging\n",
+        energy_now="24000000\n",
+        power_now="12000000\n",
+    )
+    battery = ProcReader(sys_root=tmp_path).read_battery()
+    assert battery is not None
+    assert battery.seconds_remaining == pytest.approx(7200.0)
+
+
+# -- host identity ---------------------------------------------------------
+
+
+def test_host_identity_degrades_to_all_none(missing: ProcReader) -> None:
+    identity = missing.read_host_identity()
+    assert identity.cpu_model is None
+    assert identity.cpu_cores is None
+    assert identity.memory_total_bytes is None
+    assert identity.kernel_release is None
+
+
+def test_host_identity_reads_cpu_and_memory(reader: ProcReader) -> None:
+    identity = reader.read_host_identity()
+    assert identity.cpu_cores is not None and identity.cpu_cores > 0
+    assert identity.memory_total_bytes is not None and identity.memory_total_bytes > 0

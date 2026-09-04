@@ -20,8 +20,10 @@ import re
 from pathlib import Path
 
 from .models import (
+    BatterySnapshot,
     CpuTimes,
     DiskUsage,
+    HostIdentity,
     LoadAverage,
     MemorySnapshot,
     NetworkCounters,
@@ -362,3 +364,151 @@ class ProcReader:
             return None
         readings.sort(key=lambda item: item[0])
         return readings[0][1]
+
+    def read_battery(self) -> BatterySnapshot | None:
+        """Read the first real battery under ``/sys/class/power_supply``.
+
+        Returns ``None`` when the host has no battery at all -- desktops,
+        virtual machines and containers -- which the UI must render as absent
+        rather than as a full or empty cell.
+
+        Supplies whose ``type`` is not ``Battery`` (mains adapters, USB
+        supplies, HID peripherals) are skipped: a wireless mouse reporting 40%
+        must never be mistaken for the machine's own charge.
+        """
+        supplies_root = self._sys / "class" / "power_supply"
+        try:
+            supplies = sorted(supplies_root.iterdir())
+        except (OSError, ValueError):
+            return None
+
+        for supply in supplies:
+            if (self._read_text(supply / "type") or "").strip() != "Battery":
+                continue
+
+            percent: float | None = None
+            raw_capacity = self._read_text(supply / "capacity")
+            if raw_capacity is not None:
+                capacity = self._to_int(raw_capacity.strip())
+                # Clamp rather than reject: worn cells legitimately report
+                # slightly over 100, and that is not a reason to show nothing.
+                if capacity is not None:
+                    percent = float(min(100, max(0, capacity)))
+
+            status = (self._read_text(supply / "status") or "").strip()
+            if status == "Charging":
+                charging: bool | None = True
+            elif status in ("Discharging", "Not charging", "Full"):
+                # "Full" is not charging: a full battery on mains draws nothing.
+                charging = False
+            else:
+                # "Unknown" and any vendor-specific value: say so.
+                charging = None
+
+            if percent is None and charging is None:
+                # A battery directory that tells us nothing usable is not a
+                # battery worth reporting.
+                continue
+
+            return BatterySnapshot(
+                percent=percent,
+                charging=charging,
+                seconds_remaining=self._battery_seconds_remaining(supply, charging),
+            )
+
+        return None
+
+    def _battery_seconds_remaining(self, supply: Path, charging: bool | None) -> float | None:
+        """Estimate time to empty from the kernel's charge and current counters.
+
+        Only returned while discharging, and only when both counters are
+        present and the draw is non-zero. Everything else yields ``None``: a
+        runtime figure invented from a guessed discharge rate would look
+        authoritative and be meaningless.
+        """
+        if charging is not False:
+            return None
+
+        # Some kernels expose charge (uAh) with current (uA); others expose
+        # energy (uWh) with power (uW). Both give hours when divided.
+        for remaining_name, rate_name in (
+            ("charge_now", "current_now"),
+            ("energy_now", "power_now"),
+        ):
+            raw_remaining = self._read_text(supply / remaining_name)
+            raw_rate = self._read_text(supply / rate_name)
+            if raw_remaining is None or raw_rate is None:
+                continue
+            remaining = self._to_int(raw_remaining.strip())
+            rate = self._to_int(raw_rate.strip())
+            if remaining is None or rate is None or rate <= 0 or remaining < 0:
+                continue
+            return remaining / rate * 3600.0
+
+        return None
+
+    def read_host_identity(self) -> HostIdentity:
+        """Read static facts about the machine.
+
+        Called once at startup, not per frame: none of these change while the
+        HUD is running. Every field independently degrades to ``None``, so a
+        container that exposes no model name simply shows fewer rows.
+        """
+        cpu_model: str | None = None
+        cpu_cores: int | None = None
+        raw_cpuinfo = self._read_text(self._proc / "cpuinfo")
+        if raw_cpuinfo is not None:
+            processors = 0
+            for line in raw_cpuinfo.splitlines():
+                key, separator, value = line.partition(":")
+                if not separator:
+                    continue
+                key = key.strip()
+                if key == "model name" and cpu_model is None:
+                    cpu_model = value.strip() or None
+                elif key == "processor":
+                    processors += 1
+            cpu_cores = processors or None
+
+        memory_total: int | None = None
+        raw_meminfo = self._read_text(self._proc / "meminfo")
+        if raw_meminfo is not None:
+            for line in raw_meminfo.splitlines():
+                if line.startswith("MemTotal:"):
+                    kibibytes = self._to_int(line.split()[1])
+                    if kibibytes is not None:
+                        memory_total = kibibytes * 1024
+                    break
+
+        os_name: str | None = None
+        # os-release lives outside /proc and /sys; read it via the real
+        # filesystem but tolerate its absence exactly like every other source.
+        for candidate in (Path("/etc/os-release"), Path("/usr/lib/os-release")):
+            raw_release = self._read_text(candidate)
+            if raw_release is None:
+                continue
+            for line in raw_release.splitlines():
+                if line.startswith("PRETTY_NAME="):
+                    os_name = line.partition("=")[2].strip().strip('"') or None
+                    break
+            if os_name is not None:
+                break
+
+        kernel_release: str | None = None
+        raw_kernel = self._read_text(self._proc / "sys" / "kernel" / "osrelease")
+        if raw_kernel is not None:
+            kernel_release = raw_kernel.strip() or None
+
+        hostname: str | None = None
+        raw_hostname = self._read_text(self._proc / "sys" / "kernel" / "hostname")
+        if raw_hostname is not None:
+            hostname = raw_hostname.strip() or None
+
+        return HostIdentity(
+            cpu_model=cpu_model,
+            cpu_cores=cpu_cores,
+            memory_total_bytes=memory_total,
+            os_name=os_name,
+            kernel_release=kernel_release,
+            hostname=hostname,
+        )

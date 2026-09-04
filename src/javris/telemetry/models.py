@@ -99,6 +99,41 @@ class LoadAverage:
 
 
 @dataclass(frozen=True, slots=True)
+class BatterySnapshot:
+    """Charge state of one power supply, read from ``/sys/class/power_supply``.
+
+    Attributes:
+        percent: Charge remaining, 0-100, or ``None`` if unreadable.
+        charging: True when charging, False when discharging, ``None`` when the
+            status is unknown or the supply reports something else entirely.
+        seconds_remaining: Time to empty at the present rate, or ``None``. Only
+            populated when the kernel exposes both a charge and a current, so
+            it is a measurement rather than a guess.
+    """
+
+    percent: float | None = None
+    charging: bool | None = None
+    seconds_remaining: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class HostIdentity:
+    """Static facts about the machine. Read once; these do not change at runtime.
+
+    Every field is optional: a container may expose none of them, and an
+    invented model name would be exactly the kind of decorative fiction this
+    project refuses.
+    """
+
+    cpu_model: str | None = None
+    cpu_cores: int | None = None
+    memory_total_bytes: int | None = None
+    os_name: str | None = None
+    kernel_release: str | None = None
+    hostname: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class TelemetrySnapshot:
     """A complete, self-consistent reading of the machine at one instant.
 
@@ -116,6 +151,7 @@ class TelemetrySnapshot:
     disks: tuple[DiskUsage, ...] = ()
     net_rx_bytes_per_sec: float | None = None
     net_tx_bytes_per_sec: float | None = None
+    battery: BatterySnapshot | None = None
     degraded_sources: tuple[str, ...] = field(default_factory=tuple)
 
     @property

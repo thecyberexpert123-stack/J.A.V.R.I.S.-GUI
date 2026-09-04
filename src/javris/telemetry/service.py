@@ -87,6 +87,10 @@ class TelemetrySampler:
         if not disks:
             degraded.append("storage")
 
+        # A machine with no battery is not degraded -- desktops and VMs simply
+        # have none, so absence here is a fact about the host, not a failure.
+        battery = self._reader.read_battery()
+
         rx_rate: float | None = None
         tx_rate: float | None = None
         net = self._reader.network_counters()
@@ -110,5 +114,6 @@ class TelemetrySampler:
             disks=disks,
             net_rx_bytes_per_sec=rx_rate,
             net_tx_bytes_per_sec=tx_rate,
+            battery=battery,
             degraded_sources=tuple(degraded),
         )

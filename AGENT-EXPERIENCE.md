@@ -456,3 +456,42 @@ stayed dark — which is correct behaviour but proves nothing. Rendering a strip
 at 5% / 55% / 93% / unavailable confirmed the load ramp and the colour handoff.
 A feature that only activates under conditions the dev machine never reaches
 needs a synthetic harness, or it ships unverified.
+
+## Round 6 — taking the reference further without copying it
+
+**The reference had four ideas worth taking and one worth refusing.** The
+screenshots showed corner brackets, a large clock, a specs panel and a power
+readout. The first two are pure structure and were adopted directly. The specs
+panel listed "ARK-2500 Reactor / Stark Industries GFX-9000 / 128 ZB RAM" and the
+power cell read a permanent 100% — decorative fiction. Refusing them outright
+would have lost a genuinely good layout idea, so both were rebuilt against real
+kernel sources: `/proc/cpuinfo`, `/proc/meminfo`, `/etc/os-release` and
+`/sys/class/power_supply`. The panel now shows this machine's actual Xeon and
+3.8 GiB, and shrinks on a host that reports less.
+
+**A visual bug three passing tests missed.** `PowerCell` lit each segment when
+charge reached its *upper* edge. At 8% on a ten-segment cell that lights
+nothing, so a nearly-flat battery looked exactly like a dead one. Every unit
+test passed — they checked colour and the `low` flag, never the rendered
+segment count. It was only visible by rendering the four states side by side.
+The lesson repeats from Round 5: this container has no battery, so the control
+could never have been exercised in situ, and a synthetic harness was the only
+way to see it. Now covered by a data-driven test at 0 / 0.01 / 0.08 / 0.5 / 1.0.
+
+**Absence is not degradation.** The sampler tracks `degraded_sources` for
+telemetry it *should* have read and could not. A missing battery is not that —
+desktops and VMs simply have none. Filing it as degraded would have put a
+permanent false "DEGRADED: battery" in the header of every desktop. Absent and
+broken are different states and must stay different.
+
+**Peripherals lie about being batteries.** `/sys/class/power_supply` contains
+mains adapters, USB supplies and HID devices alongside the real cell. A naive
+"read the first entry" would report a wireless mouse's charge as the laptop's.
+Filtering on `type == "Battery"` is the difference between telemetry and a
+plausible-looking number.
+
+**Layout collisions do not show up in the linter.** The host panel sat directly
+on top of the CPU gauge, and qmllint was perfectly happy. Anchoring the centre
+stage to the panel's right edge fixed it, but only after seeing it rendered —
+and the fix then had to be made conditional, because ASSISTANT mode has no
+panel and was left visibly off-centre by the first version of it.

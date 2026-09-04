@@ -7,6 +7,33 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Real host identity panel.** CPU model, logical core count, total memory,
+  OS, kernel release and hostname, all read from `/proc` and `/etc/os-release`.
+  Rows that the kernel does not expose are omitted entirely -- the panel gets
+  shorter on a restricted host rather than showing placeholder hardware.
+- **Battery telemetry** (`/sys/class/power_supply`): charge, charging state and
+  a time-to-empty estimate derived from the kernel's own charge and current
+  counters. Non-battery supplies (mains, HID peripherals) are skipped, so a
+  wireless mouse at 40% is never mistaken for the machine's charge. Hosts
+  without a battery show no cell at all.
+- **`HudClock`** — large wall clock with date and weekday, ticking on its own
+  one-second timer rather than a frame-driven binding.
+- **`CornerBrackets`** — L-shaped corner marks framing the display, applied at
+  the screen edge. Implies a frame without enclosing the content.
+- **`FactList`** and **`PowerCell`** components.
+
+### Changed
+- The centre stage yields the left gutter to the host panel in DIAGNOSTICS so
+  the two no longer overlap, and reclaims the full width in ASSISTANT, which is
+  a takeover and must stay optically centred.
+
+### Fixed
+- `PowerCell` lit segments on their upper edge, so any charge below 10% lit
+  nothing and a nearly-flat battery rendered identically to a dead one -- the
+  most important reading on the control was the one it could not express.
+  Segments now light from their lower edge; only a literal zero shows empty.
+
+### Added
 - **Emissive lighting across the HUD.** A new `Glow` component provides a soft
   radial bloom, applied to the assistant orb (ambient + hot core), the reactor
   core aperture, panel top edges, the wordmark, and the gauges. The HUD now

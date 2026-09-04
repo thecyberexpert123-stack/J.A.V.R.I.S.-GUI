@@ -487,3 +487,44 @@ ripples for `SPEAKING`; status caption beneath the orb; per-state ring speed.
 - **Auto-cycling through statuses on a timer** (their `central-core.tsx` demos
   this). Ours reflects the genuine state machine; a decorative cycle would be
   theatre implying activity that is not happening.
+
+## 22. Round 5 addendum — the user's Neon OS screenshots
+
+Two screenshots of the user's running web GUI (`localhost:3000`), supplied
+directly. Unlike §17-21, which came from reading their source, these show the
+composed result and so are evidence about *layout*, not implementation.
+
+**Observed elements.** Screen-edge corner brackets; a very large monospaced
+clock with date and weekday; a centred JARVIS orb with concentric rings and a
+drifting particle field; a left "SYSTEM DIAGNOSTICS" column with ring gauges for
+CPU/GPU/RAM plus network, storage and power bars; a right column of "USER PC
+SPECS" and "OPENED APPS"; a bottom-left "Boost Performance" button; a chat
+composer as the primary input.
+
+### D21 — Adopt the composition, re-source the content
+
+The layout is genuinely good: brackets and a large clock give the display
+structure and a fixed reference point, and flanking columns leave the centre
+clear for the assistant. All of that is adopted.
+
+The *content* of two panels cannot be. "CPU: ARK-2500 Reactor", "GPU: Stark
+Industries GFX-9000", "RAM: 128 ZB" and a permanently full 100% battery are
+decoration in the shape of telemetry. Reproducing them would break the
+project's central rule.
+
+The resolution is to keep the panel and change where its numbers come from:
+
+| Reference element | This project |
+|---|---|
+| PC SPECS (fictional) | `HostIdentity` from `/proc/cpuinfo`, `/proc/meminfo`, `/etc/os-release`, `/proc/sys/kernel/*` |
+| Power 100% CHARGING (static) | `BatterySnapshot` from `/sys/class/power_supply`, hidden entirely when the host has no battery |
+| GPU ring gauge | **Not built.** No vendor-neutral GPU utilisation counter is readable here: no `gpu_busy_percent`, no `nvidia-smi`. Verified absent rather than assumed. |
+| OPENED APPS | **Not built.** Enumerating windows needs a compositor protocol this project does not speak, and reading other processes' identities is a privacy question that has not been asked. |
+| Boost Performance | **Not built.** A button that claims to make the machine faster and does nothing is the purest form of the fabrication this project refuses. Real work would mean writing to cpufreq governors — privileged, dangerous, and out of scope. |
+
+### D22 — Absence and degradation are different states
+
+`degraded_sources` means "a source that should exist could not be read". A
+desktop with no battery is not degraded; it has no battery. Conflating the two
+would show a permanent false fault on every desktop. Absent readings are hidden;
+degraded readings are announced.

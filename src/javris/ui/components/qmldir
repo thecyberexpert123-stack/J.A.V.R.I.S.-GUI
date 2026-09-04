@@ -11,3 +11,7 @@ AmbientField 1.0 AmbientField.qml
 BootSequence 1.0 BootSequence.qml
 AssistantOrb 1.0 AssistantOrb.qml
 Glow 1.0 Glow.qml
+CornerBrackets 1.0 CornerBrackets.qml
+HudClock 1.0 HudClock.qml
+FactList 1.0 FactList.qml
+PowerCell 1.0 PowerCell.qml

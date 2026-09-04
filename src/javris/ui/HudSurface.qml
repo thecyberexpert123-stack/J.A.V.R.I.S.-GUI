@@ -127,6 +127,20 @@ Item {
         y: hudSurface.parallaxY * Theme.parallaxFar
     }
 
+    // Screen-edge brackets. Drawn at the very edge of the display so the whole
+    // surface reads as a framed instrument rather than a page of widgets.
+    CornerBrackets {
+        anchors.fill: parent
+        inset: Theme.spaceMd
+        armLength: 34
+        color: Theme.primaryDim
+        opacity: hudSurface.bootProgress * 0.9
+
+        // Farthest parallax layer, like the grid: the frame is "on the glass".
+        x: hudSurface.parallaxX * Theme.parallaxFar
+        y: hudSurface.parallaxY * Theme.parallaxFar
+    }
+
     // -- header ------------------------------------------------------------
     Item {
         id: header
@@ -231,8 +245,14 @@ Item {
         anchors {
             top: headerRule.bottom
             bottom: footer.top
-            left: parent.left
-            right: rail.left
+            // The stage yields the left gutter to the host panel while that
+            // panel is up, so the centre content is centred in the space it
+            // actually has rather than underneath a panel.
+            // Only DIAGNOSTICS yields the gutter. ASSISTANT is a takeover and
+            // must stay optically centred on the full width.
+            left: (specs.visible && hudSurface.controller.mode === "DIAGNOSTICS")
+                  ? specs.right : parent.left
+            right: rail.visible ? rail.left : parent.right
         }
         anchors.margins: Theme.spaceLg
 
@@ -298,6 +318,37 @@ Item {
             unit: hudSurface.controller.alertUnit
             advice: hudSurface.controller.alertAdvice
             severity: hudSurface.controller.alertSeverity
+        }
+    }
+
+    // -- clock -----------------------------------------------------------------
+    // The time is the one thing a HUD can always state truthfully, and at this
+    // size it anchors the composition. Hidden in ASSISTANT mode, where the orb
+    // is meant to be the only focus.
+    HudClock {
+        id: clock
+
+        anchors.top: headerRule.bottom
+        anchors.topMargin: Theme.spaceLg
+        anchors.left: parent.left
+        anchors.leftMargin: Theme.spaceLg
+
+        timeSize: 40
+        color: Theme.textPrimary
+
+        readonly property bool relevant: hudSurface.controller.mode !== "ASSISTANT"
+
+        opacity: hudSurface.entrance(0.9) * surface.suppression
+                 * (clock.relevant ? 1 : 0)
+        visible: opacity > 0
+
+        transform: Translate {
+            x: hudSurface.parallaxX * Theme.parallaxMid
+            y: hudSurface.parallaxY * Theme.parallaxMid
+        }
+
+        Behavior on opacity {
+            NumberAnimation { duration: Theme.durationNormal; easing.type: Theme.easing }
         }
     }
 
@@ -397,6 +448,56 @@ Item {
                 label: "Uplink"
                 value: hudSurface.controller.networkTxText
             }
+
+            // Only present on hardware that actually has a battery. A desktop
+            // shows nothing here rather than a permanently full cell.
+            PowerCell {
+                width: parent.width
+                visible: hudSurface.controller.batteryPresent
+                height: visible ? implicitHeight : 0
+                fraction: hudSurface.controller.batteryFraction
+                cellState: hudSurface.controller.batteryState
+                readout: hudSurface.controller.batteryText
+                runtime: hudSurface.controller.batteryRuntimeText
+            }
+        }
+    }
+
+    // -- host identity ---------------------------------------------------------
+    // Static facts, read once from the kernel. This is the honest counterpart
+    // to a "PC SPECS" panel: every row here is a real reading, and a host that
+    // reports nothing shows an empty panel rather than invented hardware.
+    Panel {
+        id: specs
+
+        anchors { top: clock.bottom; left: parent.left }
+        anchors.topMargin: Theme.spaceLg
+        anchors.leftMargin: Theme.spaceLg
+        // Wide enough for a real CPU model string; these are long in practice
+        // and eliding every one of them defeats the purpose of showing it.
+        width: 340
+        title: "Host"
+
+        readonly property bool relevant: hudSurface.controller.mode === "DIAGNOSTICS"
+                                         && hudSurface.controller.hostFacts.length > 0
+
+        opacity: hudSurface.entrance(0.88) * surface.suppression
+                 * (specs.relevant ? 1 : 0)
+        visible: opacity > 0
+
+        transform: Translate {
+            x: -(1 - hudSurface.entrance(0.88)) * Theme.spaceXl
+                + hudSurface.parallaxX * Theme.parallaxNear
+            y: hudSurface.parallaxY * Theme.parallaxNear
+        }
+
+        Behavior on opacity {
+            NumberAnimation { duration: Theme.durationNormal; easing.type: Theme.easing }
+        }
+
+        FactList {
+            width: parent.width
+            facts: hudSurface.controller.hostFacts
         }
     }
 
