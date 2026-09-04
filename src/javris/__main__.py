@@ -16,7 +16,7 @@ from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickWindow
 
 from .controller import HudController
-from .qmlregistration import configure_engine, register_controller
+from .qmlregistration import configure_engine, register_controller, set_ambient_motion
 from .telemetry.service import MIN_INTERVAL_MS
 
 #: QML modules are named javris.ui.*, so the *parent of the package* is
@@ -41,6 +41,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "--windowed",
         action="store_true",
         help="Start in a normal window instead of full screen.",
+    )
+    parser.add_argument(
+        "--no-ambient",
+        action="store_true",
+        help="Disable decorative motion (drifting motes, scanline, ring "
+        "rotation, parallax). Telemetry and alerts are unaffected.",
     )
     return parser.parse_args(argv)
 
@@ -70,6 +76,9 @@ def main(argv: list[str] | None = None) -> int:
     if not engine.rootObjects():
         print("Fatal: the QML interface failed to load.", file=sys.stderr)
         return 1
+
+    if args.no_ambient:
+        set_ambient_motion(engine, enabled=False)
 
     root = engine.rootObjects()[0]
     if isinstance(root, QQuickWindow):

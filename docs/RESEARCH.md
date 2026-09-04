@@ -284,3 +284,115 @@ Recorded as considered-and-rejected, per guideline 19:
 - **A world map or location panel** — no data source; would be fabrication.
 - **Red/gold "Iron Man" palette variant** — the HUD proper is cyan-dominant; the
   red/gold suggestion comes from an AI-prompt marketing page, not a primary source.
+
+---
+
+# Addendum — Round 3: motion language (2026-09-04)
+
+The user's brief: make it feel like *an actual JARVIS*, not just a GUI — more
+animation, more "tech". This round researched **how the reference material
+moves**, and studied a prior JARVIS GUI the user built themselves.
+
+## 13. Primary source: the original HUD team
+
+From the oral history of the 2008 HUD
+([befores & afters](https://beforesandafters.com/2019/03/18/heads-up-the-oral-history-of-iron-mans-original-hud/)),
+VFX supervisor John Nelson's three rules, quoted by Kent Seki:
+
+1. **Driven by the performance.** The graphics react to the person, not the
+   other way round.
+2. **Let the Z-axis work.** "The implied Z-space depth *behind* the camera was
+   just as important as what the audience could see." Elements fly in and out
+   from beyond the frame, not from within it.
+3. **An "alpha event" in every shot.** "There needs to be a story point that
+   you hit home with a graphic… Most alpha events weren't noticeable or even
+   obvious; however, they reinforced the subtext of the moment."
+
+Kent Seki on depth: *"the success of the depth… the movement of the HUD.
+Meaning, using the way the HUD graphics moved and got attention/activation were
+used to create depth."* **Depth is created by motion, not by perspective.**
+This matters enormously for us: we are on a flat monitor with no stereo, and
+this says we do not need one — staggered, differently-timed motion *reads* as
+depth.
+
+Jonathan Rothbart notes the elements "could go all the way around his head and
+fade on and off", and that graphics fly in "as if they were coming in and out
+behind camera".
+
+**Adopted principles:**
+
+- **D15 — Motion creates depth.** Layers move at different rates and arrive
+  from beyond the frame. No Qt Quick 3D, no fake perspective; parallax and
+  stagger do the work.
+- **D16 — Every state change deserves an alpha event.** A state transition
+  should be *punctuated* by a graphic, not merely reflected in a label. The
+  research explicitly notes these are usually subtle.
+- **D17 — Nothing snaps.** Elements arrive and leave; they do not appear and
+  disappear.
+
+## 14. The honest counterweight
+
+The same body of criticism is blunt about the cost, and it is the reason this
+round is a *disciplined* addition rather than a free-for-all
+([scifiinterfaces](https://scifiinterfaces.com/category/marvel-cinematic-universe/iron-man/)):
+
+> "The HUD is a massive distraction… there are 29 elements… Of those **87%
+> reposition themselves against his field of view without his having asked for
+> it**. **6 risk dangerous mid-flight startle reactions by expanding quickly in
+> place.** Every one of them is overlaid via transparency with at least one
+> other element."
+
+**D18 — Ambient motion must never startle, and never relocate data.** Animation
+is permitted to: rotate decorative rings, drift particles, pulse glow, sweep a
+scanline, and stagger entrances. It is **forbidden** to: move a readout the
+operator may be reading, or expand something quickly in place. Escalation (D9)
+is the sole exception, and it is deliberate, hysteresis-damped and rare.
+
+**D19 — Motion is a budget, not a feature.** Ambient animation must be
+disableable, must stop when it cannot be seen, and must not be the reason a
+reading is late.
+
+## 15. Prior art: the user's own JARVIS_GUI
+
+Studied at `github.com/Anish932-hash/JARVIS_GUI` (Next.js/React/Tailwind,
+committed 2026-02). Its `tailwind.config.ts` defines a **34-keyframe motion
+vocabulary**, which is the most directly relevant reference available because
+it represents the user's own taste. Concepts adopted, reimplemented natively in
+QML (no code copied — different language and framework entirely):
+
+| Their keyframe | What it does | Our adaptation |
+|---|---|---|
+| `trace-in` (stroke-dashoffset) | Rings/circuits draw themselves on | Boot ring tracing via `PathAngleArc.sweepAngle` |
+| `particle-line-in` | Streaks converge on the core from a radius | Boot convergence streaks |
+| `jarvis-letter-in` | Title letters rise, blur→sharp, staggered | Per-letter staggered title boot |
+| `scanline` | Gradient band sweeps down | Ambient HUD scanline |
+| `breathing-glow` | Slow glow in/out on the core | Core breathing halo |
+| `scanner-line-rotate/fade` | Radar sweep line during "thinking" | PROCESSING-state sweep |
+| `particle-drift` | Ambient particles around the core | Ambient drift field |
+| `waveform-bar` | Radial bars pulse around a circle | Reserved — needs audio we do not have |
+| `spin-slow` / `orbit` | Multi-speed concentric rotation | Already present; extended with stagger |
+| `flicker` / `holographic-flicker` | Border opacity instability | Used sparingly on the core only |
+
+Their `central-core.tsx` also does per-status ring speed changes and a
+**mouse-parallax tilt** on the core — the latter is a direct, cheap
+implementation of D15 (motion creates depth) and is adopted.
+
+Deliberately **not** adopted from that project: the Orbitron webfont (licensing
++ no bundled fonts policy), the AI chat/TTS flows (explicitly out of v1 scope),
+and the `waveform-bar` audio visualiser (we have no audio input — animating it
+would be fabricating a signal, violating the honesty contract).
+
+## 16. Capability check — `VERIFIED-LOCAL`
+
+Probed this environment directly rather than assuming:
+
+- `QtQuick.Particles` **is available and loads under the software backend.**
+- `QtQuick.Effects` (`MultiEffect`, for blur/glow) **is available and loads.**
+  This supersedes the earlier note that glow required layered strokes — that
+  workaround was for the *shader* toolchain (`.qsb`), which is still broken.
+  `MultiEffect` needs no shader compilation from us.
+- `QtQuick.Timeline` is present but not needed.
+
+Both were confirmed by loading a probe QML file offscreen and grabbing a
+non-null frame. **Still not verified:** GPU behaviour, real frame rates. All
+performance claims remain unmade.

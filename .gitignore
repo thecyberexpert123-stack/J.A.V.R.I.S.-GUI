@@ -20,3 +20,6 @@ htmlcov/
 .vscode/
 .idea/
 *.swp
+
+# Scratch: reference imagery pulled during research, not part of the project.
+image-search/

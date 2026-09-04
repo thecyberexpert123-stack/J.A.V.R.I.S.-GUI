@@ -315,3 +315,67 @@ unhappy path is now a step, not an afterthought — which is why
   rebuilt at the start of a session. `pip install -e ".[dev]"` plus
   `tools/sandbox_gl_stubs.py` takes about 20 seconds. Worth checking before
   assuming a tool is broken.
+
+## M8 — motion language
+
+### Reading the user's own code was the highest-value research
+
+The brief said "take inspirations from" a JARVIS GUI the user built two years
+ago. That repo's `tailwind.config.ts` turned out to be a **34-keyframe motion
+vocabulary** — `trace-in`, `particle-line-in`, `jarvis-letter-in`,
+`breathing-glow`, `scanner-line-rotate`. That is a far more precise statement of
+what the user actually wants than any amount of prose could be, because it is
+their taste expressed as code.
+
+None of it was copied — different language, different framework — but the
+*concept inventory* drove the whole milestone. Lesson: when a user points at
+prior work of their own, mine it for intent, not for snippets. Their config file
+was effectively the design brief.
+
+### Probe capabilities, don't assume them
+
+Earlier notes said glow required layered strokes because the shader toolchain
+(`.qsb`) was broken. I nearly carried that forward as "no effects available".
+Actually probing found `QtQuick.Particles` **and** `QtQuick.Effects` both
+present and loading fine under the software backend — the `.qsb` limitation only
+ever applied to shaders *I* would have to compile. A 30-second probe file
+invalidated an assumption that would have shaped the whole design.
+
+### The review tool was lying to me
+
+`--boot-progress` printed a filename and looked like it worked. It rendered a
+different frame than requested every time, because `bootProgress` carries a
+`Behavior`: assigning to it *retargets an animation* instead of setting a value,
+and by capture time the animation had moved on. I only caught it because a frame
+at progress 1.0 still showed the overlay, which contradicted the code.
+
+The fix was not just reasserting the value at capture — it was making the tool
+**print the value it actually captured**. A review tool that cannot tell you
+what it rendered is worse than no tool, because it launders a wrong frame as
+evidence. Any future capture flag should read back and report.
+
+### Research that argues against the feature is the most useful kind
+
+This round's brief was "more animations". The strongest source I found was the
+critique counting **29 HUD elements, 87% of which move unasked, 6 of which risk
+startle by expanding in place**. That is an argument *against* the request as
+stated.
+
+It did not mean refusing — it meant the difference between decoration and a
+motion *language*: ambient motion is slow, low-contrast, behind everything, and
+switchable off; nothing expands in place; nothing relocates a reading. The
+`--no-ambient` flag and the `visible`-gating exist entirely because of that
+critique. Taking the brief seriously meant finding the constraint that makes it
+good, not maximising the literal ask.
+
+### Small things
+
+- A `Row` sizes to its *visible* children. Animating per-letter opacity inside
+  one makes the whole word creep sideways. Fixed positions, measured from the
+  font, are the answer for text that reveals.
+- `Behavior` cannot animate a `readonly property` — the error says "Invalid
+  property assignment", which does not point at the `Behavior`.
+- An overlay without an opaque backdrop composites over live content and both
+  become unreadable. Obvious in hindsight; invisible until rendered.
+- Every new infinite animation needs gating on both the master switch *and*
+  `visible`. Easy to add the first and forget the second.

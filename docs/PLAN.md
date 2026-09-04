@@ -1,7 +1,7 @@
 # J.A.V.R.I.S. GUI — Delivery Plan
 
 Owner: engineering (agent, acting as senior front-end/full-stack).
-Status: **M0 approved; M1-M7 implemented and verified.**
+Status: **M0 approved; M1-M8 implemented and verified.**
 Stakeholder decisions (2026-09-03): Qt 6 / QML confirmed on the basis of animation and
 performance; v1 scope = HUD shell with real local telemetry; Python/PySide6 backend.
 A hybrid multi-toolkit approach was considered and **declined**: Qt Quick already
@@ -101,6 +101,34 @@ telemetry is testable against fixture files with **zero** real `/proc` access.
 | **M5** | Modes (R2), LogStream, CommandRouter (R6), failure states (R7) | **Done** - Every failure mode in R7 demonstrated by a test |
 | **M6** | Packaging, README, run instructions, final self-review | **Done** - `pip install -e .` then one command launches it |
 | **M7** | Attention escalation (R9), from the second research round | **Done** - Policy unit-tested; overlay rendered and inspected |
+| **M8** | Motion language (R10), from the third research round | **Done** - 48 QML tests; boot frames rendered and inspected |
+
+### R10 — Motion language (added after M7)
+
+Requested directly by the user ("more animations… feels like an actual JARVIS
+rather than just a GUI"), and scoped by the research rather than by the literal
+ask. Citations in `docs/RESEARCH.md` §13-16.
+
+**Requirement.** The HUD must read as a living system: it assembles itself on
+power-on, its layers have apparent depth, and state changes are punctuated
+rather than merely relabelled.
+
+**Acceptance criteria — all met:**
+
+1. The boot sequence is a pure function of a single progress value, so any
+   frame is reproducible and reviewable from a still.
+2. Boot phases run in the documented order: streaks, then rings, then title.
+3. Layers move by different amounts, producing depth without 3D.
+4. Every assistant state change fires an outward-travelling alpha event.
+5. Ambient particle and streak counts scale with area and are **capped**.
+6. **All** decorative motion stops on `Theme.ambientMotion` / `--no-ambient`,
+   and stops when the item is not visible.
+7. Informational motion (escalation, gauge transitions) is unaffected by the
+   off switch.
+8. Nothing expands in place and nothing relocates a live reading (D18).
+
+**Explicitly out of scope:** audio visualisers (no audio input — animating one
+would fabricate a signal), Qt Quick 3D, and bundled fonts.
 
 ### R9 — Attention escalation (added after M6)
 

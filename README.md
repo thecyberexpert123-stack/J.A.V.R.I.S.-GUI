@@ -35,6 +35,18 @@ anything the kernel will not report is shown as unavailable rather than faked.
   already central in the active mode.
 - **Console with allow-listed commands.** No shell execution, no network, no secrets.
 
+- **A motion language, not just animation.** The HUD boots by assembling itself —
+  energy streaks converge, rings trace themselves in, the name resolves letter by
+  letter. Layers drift against the pointer at three different depths, the core
+  breathes, and a radar sweep runs only while the assistant is actually working.
+  Every assistant state change fires an "alpha event": a single ring travelling
+  outward, so transitions are felt rather than merely relabelled. All of it is
+  bounded by research the reference HUD itself failed
+  ([`docs/RESEARCH.md`](docs/RESEARCH.md) §13-16): nothing expands in place, nothing
+  relocates a reading, and `--no-ambient` switches every decorative animation off.
+
+![Boot sequence](docs/images/hud-boot.png)
+
 ![Attention escalation](docs/images/hud-alert.png)
 
 *A sustained memory-pressure condition escalated into the main display. The header
@@ -61,6 +73,7 @@ pip install -e .
 javris                 # full screen
 javris --windowed      # normal window, useful for tiling WMs
 javris --interval 500  # faster telemetry polling, in milliseconds
+javris --no-ambient    # disable decorative motion (telemetry unaffected)
 ```
 
 Or without installing: `python -m javris --windowed`.

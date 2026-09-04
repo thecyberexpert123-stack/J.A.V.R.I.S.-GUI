@@ -54,6 +54,43 @@ QtObject {
     readonly property int durationBoot:   1800
     readonly property int easing:         Easing.OutCubic
 
+    // -- ambient motion (docs/RESEARCH.md, D15-D19) -------------------------
+    // Depth in the reference HUD is created by *motion*, not perspective:
+    // layers moving at different rates read as separate distances. These
+    // periods are deliberately long and mutually non-harmonic, so the field
+    // never visibly loops or beats.
+    readonly property int periodDrift:     22000
+    readonly property int periodScanline:  9000
+    readonly property int periodBreath:    4200
+    readonly property int periodSweep:     3600
+
+    // Stagger between successive elements in an entrance sequence. Nothing
+    // arrives at once; that is what makes it read as an assembly rather than
+    // a page load.
+    readonly property int staggerStep:     70
+
+    // Parallax depth factors. Larger = nearer the viewer = moves more.
+    readonly property real parallaxNear:  1.0
+    readonly property real parallaxMid:   0.55
+    readonly property real parallaxFar:   0.22
+    // Maximum parallax excursion in pixels. Small on purpose: D18 forbids
+    // motion that could startle or displace something being read.
+    readonly property real parallaxRange: 14
+
+    /*!
+        Master switch for ambient, non-informational motion.
+
+        Set false to stop every decorative animation - drift, scanlines,
+        breathing, parallax, ring rotation. Motion that carries *information*
+        (escalation, gauge transitions, state colour) is unaffected, because
+        suppressing it would hide data rather than reduce distraction.
+
+        Exists because the source material's own critique is that a HUD of this
+        kind is "a massive distraction" (D18/D19), and because a reading must
+        never be late on account of decoration.
+    */
+    property bool ambientMotion: true
+
     // -- typography --------------------------------------------------------
     // Monospace throughout: telemetry columns must not reflow as digits change.
     readonly property string fontFamily: monoFont.font.family

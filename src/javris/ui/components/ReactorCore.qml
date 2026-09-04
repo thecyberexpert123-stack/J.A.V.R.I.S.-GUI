@@ -68,13 +68,148 @@ Item {
         }
     }
 
+    /*! True while ambient decorative motion should run. Read by tests. */
+    readonly property bool animating: Theme.ambientMotion && !root.faulted
+                                      && root.bootProgress >= 1
+
+    /*!
+        Fires a one-shot "alpha event" pulse.
+
+        The original HUD team's third rule was that every shot carries an alpha
+        event - a graphic that punctuates the moment (docs/RESEARCH.md, D16).
+        Here a state change is that moment: the core emits a single expanding
+        ring so the transition is *felt*, not merely relabelled.
+
+        Deliberately a ring travelling outward rather than the core expanding
+        in place: D18 forbids expand-in-place, which the source critique flags
+        as a startle risk.
+    */
+    function pulse() {
+        if (!Theme.ambientMotion)
+            return;
+        alphaPulse.restart();
+    }
+
+    onCoreStateChanged: root.pulse()
+
+    // -- alpha-event pulse ---------------------------------------------------
+    Rectangle {
+        id: alphaRing
+
+        anchors.centerIn: parent
+        width: root.outerRadius * 2 * alphaRing.expansion
+        height: width
+        radius: width / 2
+        color: "transparent"
+        border.width: Theme.strokeMedium
+        border.color: root.coreColor
+        opacity: 0
+        visible: opacity > 0
+
+        property real expansion: 0.35
+
+        SequentialAnimation {
+            id: alphaPulse
+
+            ParallelAnimation {
+                NumberAnimation {
+                    target: alphaRing; property: "expansion"
+                    from: 0.35; to: 1.15
+                    duration: Theme.durationSlow * 2
+                    easing.type: Easing.OutCubic
+                }
+                SequentialAnimation {
+                    NumberAnimation {
+                        target: alphaRing; property: "opacity"
+                        from: 0; to: 0.7
+                        duration: Theme.durationFast
+                    }
+                    NumberAnimation {
+                        target: alphaRing; property: "opacity"
+                        to: 0
+                        duration: Theme.durationSlow * 2 - Theme.durationFast
+                        easing.type: Easing.InCubic
+                    }
+                }
+            }
+        }
+    }
+
+    // -- breathing halo ------------------------------------------------------
+    // A slow luminance swell. Peripheral vision detects contrast change far
+    // better than detail (D10), so this is how the core signals "alive"
+    // without demanding a direct look.
+    Rectangle {
+        id: breath
+
+        anchors.centerIn: parent
+        width: root.outerRadius * 1.7
+        height: width
+        radius: width / 2
+        color: root.coreColor
+        opacity: 0.05 * root.bootProgress
+        visible: Theme.ambientMotion
+
+        SequentialAnimation on opacity {
+            running: root.animating
+            loops: Animation.Infinite
+            NumberAnimation {
+                to: 0.13; duration: Theme.periodBreath / 2
+                easing.type: Easing.InOutSine
+            }
+            NumberAnimation {
+                to: 0.05; duration: Theme.periodBreath / 2
+                easing.type: Easing.InOutSine
+            }
+        }
+    }
+
+    // -- processing sweep ----------------------------------------------------
+    // A radar-style sweep shown only while the assistant is actually working.
+    // Motion that means something: when it is turning, JARVIS is thinking.
+    Item {
+        id: sweep
+
+        anchors.fill: parent
+        visible: root.coreState === "PROCESSING" && Theme.ambientMotion
+        opacity: root.bootProgress
+
+        NumberAnimation on rotation {
+            running: sweep.visible
+            from: 0; to: 360
+            duration: Theme.periodSweep
+            loops: Animation.Infinite
+        }
+
+        Shape {
+            anchors.fill: parent
+            asynchronous: true
+            preferredRendererType: Shape.CurveRenderer
+
+            ShapePath {
+                strokeColor: Theme.accent
+                strokeWidth: Theme.strokeThin
+                fillColor: "transparent"
+                capStyle: ShapePath.RoundCap
+
+                PathAngleArc {
+                    centerX: root.centreX; centerY: root.centreY
+                    radiusX: root.outerRadius * 0.94
+                    radiusY: root.outerRadius * 0.94
+                    startAngle: -8
+                    sweepAngle: 34
+                }
+            }
+        }
+    }
+
     // -- outer arcs, clockwise -------------------------------------------
     Item {
         anchors.fill: parent
         opacity: root.bootProgress
 
         NumberAnimation on rotation {
-            running: root.spinPeriod > 0
+            running: root.spinPeriod > 0 && Theme.ambientMotion
             from: 0
             to: 360
             duration: root.spinPeriod
@@ -122,7 +257,7 @@ Item {
         opacity: root.bootProgress * 0.75
 
         NumberAnimation on rotation {
-            running: root.spinPeriod > 0
+            running: root.spinPeriod > 0 && Theme.ambientMotion
             from: 360
             to: 0
             duration: root.spinPeriod * 1.7
@@ -273,7 +408,7 @@ Item {
         opacity: 0.55 * root.bootProgress
 
         SequentialAnimation on scale {
-            running: !root.faulted && root.bootProgress >= 1
+            running: root.animating
             loops: Animation.Infinite
             NumberAnimation {
                 to: 1.0 + 0.12 * (0.3 + root.safeLoad)

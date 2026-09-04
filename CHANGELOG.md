@@ -6,6 +6,86 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — M8: motion language (2026-09-04)
+
+A third research round, this time into how the reference material *moves*, plus
+a study of the user's own earlier JARVIS GUI
+(`github.com/Anish932-hash/JARVIS_GUI`, Next.js). Principles D15-D19 in
+`docs/RESEARCH.md`. The governing finding is from the original HUD team: depth
+came from *how elements moved*, not from perspective — which means a flat
+monitor loses nothing.
+
+- `AmbientField.qml` — the atmosphere layer: area-scaled drifting motes
+  (`QtQuick.Particles`), one slow scanline, and a vignette that also raises
+  central contrast for escalated alerts.
+- `BootSequence.qml` — power-on choreography in three phases: energy streaks
+  converge from beyond the frame, three rings trace themselves in at different
+  rates, then the name assembles letter by letter. Implemented as a **pure
+  function of `progress`** rather than a timer chain, so any frame is
+  reproducible and testable.
+- **Alpha events** (`ReactorCore.pulse()`): every assistant state change now
+  emits one outward-travelling ring, so a transition is felt rather than merely
+  relabelled.
+- **Breathing halo** and a **PROCESSING radar sweep** on the core — the sweep
+  runs only while the assistant is actually working, so the motion means
+  something.
+- **Pointer parallax** across three depth layers, and **staggered entrances**
+  via `HudSurface.entrance()`.
+- Motion tokens in `Theme.qml`, with mutually non-harmonic periods so the
+  ambient field never visibly loops.
+- `javris --no-ambient` and `Theme.ambientMotion` — a real off switch for all
+  decorative motion.
+- `tools/headless_render.py --boot-progress`, to capture any frame of the boot
+  sequence for review.
+
+### Changed
+- Every pre-existing infinite animation (ring rotation, inner-ring pulse) is now
+  gated on `Theme.ambientMotion`, so the off switch is genuinely complete rather
+  than covering only the new work.
+
+### Fixed
+- The boot title used a `Row`, which sizes itself to its *visible* children, so
+  the word crept sideways as letters revealed. Letters are now placed at fixed
+  offsets measured from the font.
+- The boot overlay had no backdrop, so the live HUD showed through and the two
+  competed. It now owns the screen and clears just before the title lands.
+- The boot streaks were short and dim enough to read as tick marks rather than
+  converging energy.
+- Header chrome was fully visible during boot, over the overlay. It now enters
+  on the same stagger as the rest of the HUD.
+- `--boot-progress` silently rendered a *different* frame than requested,
+  because `bootProgress` carries a `Behavior` and assigning it retargets an
+  animation rather than setting a value. The tool now reasserts the value at
+  capture time and prints what it actually captured.
+
+### Verified
+- `QtQuick.Particles` and `QtQuick.Effects` were confirmed available and loading
+  under the software backend by rendering a probe file — not assumed.
+- All seven gates pass: ruff, mypy strict (12 files), 158 unit tests, qmllint
+  clean on 14 QML files, **48 Qt Quick tests** (up from 29), headless render.
+- `set_ambient_motion()` was exercised against the real `Theme` singleton and
+  observed to toggle and restore.
+- Boot frames at progress 0.30 / 0.80 / 0.85 / 1.00 rendered and visually
+  inspected, plus the escalation and PROCESSING frames re-checked for
+  regressions.
+
+### Not verified
+- No GPU, X11 or Wayland rendering; software backend only. **No frame-rate
+  measurement was taken, so no claim is made that the particle field, parallax
+  or boot sequence hold 60 fps on real hardware.** This is the change most
+  likely to cost performance and it is the one thing that could not be measured
+  here.
+- Pointer parallax has not been exercised with a real mouse; only the binding
+  path was verified.
+
+### Considered and rejected
+- The `waveform-bar` audio visualiser from the reference project. We have no
+  audio input, so animating it would be fabricating a signal.
+- The Orbitron webfont used by that project — no bundled fonts, and only DejaVu
+  is available here.
+- A full scanline raster over the whole HUD: it reduces glyph legibility, which
+  D14 rules out for a tool. One soft travelling band is used instead.
+
 ### Added — M7: attention escalation (2026-09-03)
 
 A second research round focused on HUD *behaviour* rather than appearance. The

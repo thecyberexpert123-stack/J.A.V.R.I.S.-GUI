@@ -68,6 +68,7 @@ def render(
     mode: str | None = None,
     state: str | None = None,
     simulate_alert: bool = False,
+    boot_progress: float | None = None,
 ) -> int:
     """Load the HUD offscreen and save a frame. Returns a process exit code."""
     QCoreApplication.setAttribute(  # Software rasteriser: no GPU in CI.
@@ -104,6 +105,18 @@ def render(
         controller.requestState("STANDBY")
         controller.requestState(state)
 
+    if boot_progress is not None:
+        # Freeze the boot choreography for inspection.
+        #
+        # bootProgress carries a Behavior, so assigning it *retargets an
+        # animation* rather than setting a value. The assignment is therefore
+        # repeated just before the grab, and the value actually captured is
+        # read back and reported - an earlier version of this tool silently
+        # rendered a different frame than the one requested.
+        root = view.rootObject()
+        if root is not None:
+            root.setProperty("bootProgress", boot_progress)
+
     if simulate_alert:
         # Escalation requires a sustained condition by design, so drive enough
         # polls for the policy to raise rather than waiting out real time.
@@ -114,6 +127,11 @@ def render(
 
     def capture() -> None:
         nonlocal exit_code
+        root = view.rootObject()
+        if boot_progress is not None and root is not None:
+            root.setProperty("bootProgress", boot_progress)
+            actual = root.property("bootProgress")
+            print(f"bootProgress requested={boot_progress} captured={actual}")
         image = view.grabWindow()
         if image.isNull() or image.width() == 0:
             print("Frame grab produced an empty image.", file=sys.stderr)
@@ -158,6 +176,12 @@ def main() -> int:
         "attention-escalation overlay can be captured. Never used by the app.",
     )
     parser.add_argument(
+        "--boot-progress",
+        type=float,
+        default=None,
+        help="Review only: freeze the boot sequence at this 0.0-1.0 progress.",
+    )
+    parser.add_argument(
         "--settle",
         type=int,
         default=2500,
@@ -172,6 +196,7 @@ def main() -> int:
         args.mode,
         args.state,
         args.simulate_alert,
+        args.boot_progress,
     )
 
 

@@ -216,3 +216,88 @@ against.
 `Theme.fontSizeHero` (64 px) exists only for the escalated readout. D10 calls
 for **high contrast and large type**, not more detail — the banner carries one
 number and one sentence, deliberately.
+
+---
+
+## Motion language
+
+Research and citations in `docs/RESEARCH.md` §13-16 (principles D15-D19).
+
+### The two rules that govern everything here
+
+1. **Motion creates depth** (D15). The original HUD supervisor's rule was to
+   "let the Z-axis work", and his colleague is explicit that the depth came
+   from *how elements moved*, not from perspective. We have no 3D and need
+   none: staggered timing and per-layer parallax do the work.
+2. **Motion must never startle or displace** (D18). The same body of criticism
+   counts 29 elements in the reference HUD, of which **87% reposition
+   themselves unasked** and **6 risk startle by expanding in place**. That is
+   the failure mode this project is explicitly avoiding.
+
+### What is allowed to move, and what is not
+
+| Allowed | Forbidden |
+|---|---|
+| Rotating decorative rings | Moving a readout the operator may be reading |
+| Drifting motes, scanline, vignette | Expanding anything quickly in place |
+| Glow / breathing luminance | Animation that delays a reading |
+| Staggered entrances, parallax | Ambient motion that cannot be switched off |
+
+The single exception is attention escalation (D9), which *does* take over the
+centre of the display — deliberately, rarely, and damped by hysteresis.
+
+### Motion tokens
+
+| Token | Value | Use |
+|---|---|---|
+| `periodDrift` | 22000 ms | Mote lifespan |
+| `periodScanline` | 9000 ms | One scanline traverse |
+| `periodBreath` | 4200 ms | Core luminance swell |
+| `periodSweep` | 3600 ms | PROCESSING radar sweep |
+| `staggerStep` | 70 ms | Gap between successive entrances |
+| `parallaxFar/Mid/Near` | 0.22 / 0.55 / 1.0 | Per-layer depth factor |
+| `parallaxRange` | 14 px | Maximum excursion — small on purpose |
+
+Periods are mutually non-harmonic so the field never visibly loops or beats.
+
+### Layer depth map
+
+| Layer | Parallax | Notes |
+|---|---|---|
+| `HudGrid`, `AmbientField` | `parallaxFar` | Background plate |
+| Mode surface | `parallaxMid` | Gauges, reactor core |
+| Vitals rail, console | `parallaxNear` | Foreground chrome |
+
+### Boot sequence
+
+`BootSequence.qml` is a **pure function of `progress`** — no timer chain. The
+same value always yields the same frame, which is what makes it reviewable from
+a still and testable without waiting on animations.
+
+| Phase | Range | What happens |
+|---|---|---|
+| Streaks | 0.00 – 0.45 | Energy converges from 2.6x the core radius |
+| Rings | 0.15 – 0.68 | Three rings trace at different rates |
+| Title | 0.68 – 1.00 | Letters rise and sharpen, staggered |
+| Handoff | 0.55 – 0.90 | Backdrop clears; HUD chrome enters behind it |
+
+Entrance staggering uses `HudSurface.entrance(threshold)`. Letters are placed at
+**fixed offsets**, not in a `Row`: a `Row` sizes to its visible children, so the
+word crept sideways as letters revealed.
+
+### Alpha events
+
+Rule three from the original team: every shot carries an "alpha event" — a
+graphic that punctuates the moment, usually subtle. Here a **state change**
+fires `ReactorCore.pulse()`, emitting one ring that travels *outward*. It
+travels rather than expanding in place precisely because D18 forbids the latter.
+
+### The off switch
+
+`Theme.ambientMotion` (CLI: `javris --no-ambient`) stops **all** decorative
+motion. It deliberately does **not** touch informational motion — escalation,
+gauge transitions, state colour — because suppressing those would hide data.
+
+Every ambient animation must additionally stop when its item is not `visible`.
+An unseen HUD must burn no cycles; `AmbientField.running` and
+`ReactorCore.animating` encode this and are asserted by tests.
