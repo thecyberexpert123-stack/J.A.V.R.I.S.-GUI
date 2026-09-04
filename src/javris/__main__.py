@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QUrl
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QSurfaceFormat
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickWindow
 
@@ -59,6 +59,19 @@ def build_window_source() -> QUrl:
 def main(argv: list[str] | None = None) -> int:
     """Run the application. Returns the process exit code."""
     args = _parse_args(sys.argv[1:] if argv is None else argv)
+
+    # 4x multisampling, requested before the application exists because the
+    # format is read when the first window is created.
+    #
+    # Scope of this, honestly stated: it improves the *hardware* path, where
+    # Rectangle borders and rotated edges would otherwise show stair-stepping.
+    # It does nothing under QT_QUICK_BACKEND=software, and Shape elements using
+    # CurveRenderer already antialias themselves regardless. Requesting samples
+    # is a hint -- drivers that cannot honour it fall back silently rather than
+    # failing to start, so this is safe to ask for unconditionally.
+    surface_format = QSurfaceFormat.defaultFormat()
+    surface_format.setSamples(4)
+    QSurfaceFormat.setDefaultFormat(surface_format)
 
     app = QGuiApplication(sys.argv)
     app.setApplicationName("J.A.V.R.I.S.")

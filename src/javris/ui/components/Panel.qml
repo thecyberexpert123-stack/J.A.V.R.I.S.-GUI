@@ -40,13 +40,21 @@ Item {
                     + Math.max(contentArea.childrenRect.height, 0)
                     + padding * 2
 
-    // Inner edge light. The reference web HUD pairs every panel border with an
-    // inset glow; without it a framed panel reads as a flat cut-out. Clipped
-    // to the panel so the bloom stays inside the frame.
+    /*!
+        Attention light.
+
+        Panels do \e not glow by default. Lighting every frame on screen makes
+        the bloom uniform, and a uniform signal carries no information -- it
+        just raises the noise floor. A panel emits only when it has something
+        to say, which makes the light itself meaningful (D18).
+    */
+    property bool attention: false
+
     Item {
         anchors.fill: parent
         clip: true
         z: -1
+        visible: root.attention
 
         Glow {
             anchors.horizontalCenter: parent.horizontalCenter
@@ -54,7 +62,13 @@ Item {
             anchors.topMargin: -parent.height * 0.55
             size: parent.width * 1.5
             color: root.frameColor
-            intensity: Theme.glowSubtle * Theme.glowScale * 0.7
+            intensity: Theme.glowSubtle * Theme.glowScale * 0.8
+
+            Behavior on intensity {
+                NumberAnimation {
+                    duration: Theme.durationSlow; easing.type: Theme.easing
+                }
+            }
         }
     }
 
@@ -66,8 +80,9 @@ Item {
         ShapePath {
             strokeColor: root.frameColor
             strokeWidth: Theme.strokeThin
-            // Translucent so the inner edge light reads through the fill.
-            fillColor: Qt.rgba(Theme.panel.r, Theme.panel.g, Theme.panel.b, 0.82)
+            // Slightly translucent so the ambient field behind reads through
+            // and panels sit *in* the scene rather than on top of it.
+            fillColor: Qt.rgba(Theme.panel.r, Theme.panel.g, Theme.panel.b, 0.88)
             joinStyle: ShapePath.MiterJoin
 
             startX: Theme.cornerCut

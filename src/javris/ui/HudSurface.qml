@@ -363,6 +363,9 @@ Item {
         anchors.margins: Theme.spaceLg
         width: 250
         title: "Vitals"
+        // Lights while a condition is escalated: the rail carries the metric
+        // that raised it, so it is where the eye should go.
+        attention: hudSurface.controller.alertActive
         // The Panel paints a frame and fill of its own, so opacity alone left
         // a visible edge in ASSISTANT mode. visible is bound below.
 
@@ -509,6 +512,22 @@ Item {
         height: 168
         title: "Console"
         status: "TAB: cycle mode"
+
+        // The console is the only panel that lights, and only for a moment
+        // after it gains a line. This is what makes the bloom informative:
+        // it means "something was just said here", not "this is a panel".
+        attention: consoleFlash.running
+
+        Timer {
+            id: consoleFlash
+            interval: Theme.durationSlow * 3
+            repeat: false
+        }
+
+        Connections {
+            target: hudSurface.controller
+            function onLogChanged() { consoleFlash.restart(); }
+        }
         opacity: hudSurface.entrance(0.92)
 
         transform: Translate {

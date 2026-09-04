@@ -155,6 +155,10 @@ Item {
                 preferredRendererType: Shape.CurveRenderer
 
                 ShapePath {
+                    // Kept dashed and uniform: this is the outermost boundary
+                    // and it is the one element that should read as a fixed
+                    // reference. Everything inside it moves and fades against
+                    // it, so tapering this too would leave nothing steady.
                     strokeColor: root.tint
                     strokeWidth: Theme.strokeThin
                     fillColor: "transparent"
@@ -180,34 +184,40 @@ Item {
                 loops: Animation.Infinite
             }
 
-            Shape {
+            // Tapered rather than uniform: a hard-ended arc reads as a solid
+            // mechanical part and makes the start and end points arbitrarily
+            // conspicuous. Fading each arc into and out of nothing is what
+            // stops the ring looking machined.
+            TaperedArc {
                 anchors.fill: parent
-                asynchronous: true
-                preferredRendererType: Shape.CurveRenderer
+                arcRadius: root.radius * 0.80
+                startAngle: 24
+                sweepAngle: 132
+                // Full tint, not tintDim: the taper already supplies the
+                // falloff, and dimming the colour on top of it left these
+                // arcs invisible against the core bloom. One dimming factor,
+                // not two.
+                color: root.tint
+                thickness: Theme.strokeMedium
+                peak: 0.85
+                peakPosition: 0.62
+                falloff: 1.2
+            }
 
-                ShapePath {
-                    strokeColor: root.tintDim
-                    strokeWidth: Theme.strokeThin
-                    fillColor: "transparent"
-
-                    PathAngleArc {
-                        centerX: root.centreX; centerY: root.centreY
-                        radiusX: root.radius * 0.80; radiusY: root.radius * 0.80
-                        startAngle: 24; sweepAngle: 132
-                    }
-                }
-
-                ShapePath {
-                    strokeColor: root.tintDim
-                    strokeWidth: Theme.strokeThin
-                    fillColor: "transparent"
-
-                    PathAngleArc {
-                        centerX: root.centreX; centerY: root.centreY
-                        radiusX: root.radius * 0.80; radiusY: root.radius * 0.80
-                        startAngle: 204; sweepAngle: 132
-                    }
-                }
+            TaperedArc {
+                anchors.fill: parent
+                arcRadius: root.radius * 0.80
+                startAngle: 204
+                sweepAngle: 132
+                // Full tint, not tintDim: the taper already supplies the
+                // falloff, and dimming the colour on top of it left these
+                // arcs invisible against the core bloom. One dimming factor,
+                // not two.
+                color: root.tint
+                thickness: Theme.strokeMedium
+                peak: 0.85
+                peakPosition: 0.62
+                falloff: 1.2
             }
         }
     }

@@ -65,6 +65,17 @@ QtObject {
     readonly property int durationBoot:   1800
     readonly property int easing:         Easing.OutCubic
 
+    /*!
+        Easing for large or slow moves.
+
+        OutCubic decelerates hard and then stops, which is right for a 120ms
+        state flick but reads as mechanical over a long travel -- the element
+        visibly arrives. OutQuint keeps a longer, softer tail, so big entrances
+        settle instead of landing. Used where the eye can follow the whole
+        movement.
+    */
+    readonly property int easingSoft:     Easing.OutQuint
+
     // -- ambient motion (docs/RESEARCH.md, D15-D19) -------------------------
     // Depth in the reference HUD is created by *motion*, not perspective:
     // layers moving at different rates read as separate distances. These

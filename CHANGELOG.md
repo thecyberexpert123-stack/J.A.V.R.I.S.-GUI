@@ -7,6 +7,37 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **`TaperedArc`** — an arc whose stroke fades along its own length. Qt Quick
+  has no per-length stroke gradient, so this builds the effect from short
+  overlapping segments on an eased opacity profile. Uniform arcs read as hard
+  mechanical parts and make their arbitrary start and end points conspicuous;
+  tapered ones emerge from and dissolve into nothing. Supports a comet profile
+  (`peakPosition` near 1.0) so a rotating element's direction is legible from
+  the stroke itself.
+- 4x multisampling requested at startup. This improves the hardware path only;
+  it is a no-op under the software backend, and `Shape` already antialiases
+  itself. Stated plainly rather than claimed as a general smoothness win.
+- `Theme.easingSoft` (OutQuint) for long travels, where OutCubic's hard
+  deceleration reads as the element visibly arriving rather than settling.
+
+### Changed
+- **Glow is no longer applied uniformly.** Panels do not light by default; they
+  gained an `attention` property and emit only when they have something to say.
+  The vitals rail lights while a condition is escalated, and the console lights
+  briefly when a line is appended. Lighting every frame made the bloom uniform,
+  and a uniform signal carries no information -- it only raises the noise floor.
+- The orb's standing arcs and the reactor's rotating arcs are now tapered.
+- The orb's outer dashed ring is deliberately left uniform: it is the fixed
+  reference everything else moves against.
+
+### Fixed
+- `TaperedArc` leaked its segment objects on every rebuild -- 60 live objects
+  where 30 were expected after repeated sweep changes. `destroy()` is deferred
+  to the next event-loop pass, so reading `Shape.data.length` immediately after
+  a rebuild returns a stale count and hid the leak. Segments are now tracked in
+  an owned list, and released on destruction.
+
+### Added
 - **Real host identity panel.** CPU model, logical core count, total memory,
   OS, kernel release and hostname, all read from `/proc` and `/etc/os-release`.
   Rows that the kernel does not expose are omitted entirely -- the panel gets

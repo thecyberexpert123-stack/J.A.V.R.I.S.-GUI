@@ -352,3 +352,66 @@ Always multiply by `Theme.glowScale`, never hardcode an intensity.
 4. **Faults dim rather than flare.** A faulted core uses `glowSubtle`, not
    `glowStrong`: a fault is not a mood, and a bright red bloom reads as power
    rather than failure.
+
+
+## Where light is allowed
+
+Bloom is a signal, not a surface treatment. If everything glows, the glow says
+nothing and the display's noise floor simply rises.
+
+**Lit by default** — elements that genuinely emit:
+
+- the assistant orb's ambient field and hot core;
+- the reactor core's aperture and breathing halo;
+- the wordmark;
+- a gauge's dial, scaled by its measured value.
+
+**Lit only on an event** — `Panel.attention`, off by default:
+
+- the vitals rail, while a condition is escalated;
+- the console, briefly after a line is appended.
+
+**Never lit** — everything structural: corner brackets, the grid, panel frames
+at rest, the fact list, tick scales, the outer boundary ring.
+
+Before adding a glow, answer: *what does it mean when this is lit, and what
+does it mean when it is not?* If the second answer is "nothing, it is always
+lit", it is decoration and does not belong.
+
+## Softness
+
+Uniform strokes are what make a Qt Quick HUD look rigid. A `PathAngleArc` with
+one `strokeColor` has identical weight at both ends, so it reads as a machined
+part and its start and end points -- which are arbitrary -- become the most
+conspicuous thing about it.
+
+`TaperedArc` fades a stroke along its length:
+
+```qml
+TaperedArc {
+    anchors.fill: parent
+    arcRadius: radius * 0.8
+    startAngle: 24
+    sweepAngle: 132
+    color: Theme.primary
+    peakPosition: 0.62   // 0.5 symmetric, near 1.0 for a comet profile
+    falloff: 1.2         // higher concentrates the light
+}
+```
+
+Rules:
+
+1. **One dimming factor, not two.** A tapered arc uses the full tint. Applying
+   `primaryDim` *and* a taper stacks two falloffs and the arc disappears.
+2. **Leave one fixed reference.** The orb's outer dashed ring stays uniform on
+   purpose: everything inside it moves and fades against it, and if that also
+   tapered there would be nothing steady to read the motion against.
+3. **Comet profiles carry direction.** `peakPosition` near 1.0 puts the light at
+   the leading end, so rotation direction is legible from a still frame.
+
+### What multisampling does and does not do
+
+`QSurfaceFormat.setSamples(4)` at startup helps `Rectangle` borders and rotated
+edges **on the hardware path only**. It is inert under
+`QT_QUICK_BACKEND=software`, and `Shape` with `CurveRenderer` antialiases
+independently of it. It is not the source of the HUD's softness -- the taper is.

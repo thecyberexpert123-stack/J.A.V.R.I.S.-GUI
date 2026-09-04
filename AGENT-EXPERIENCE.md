@@ -495,3 +495,46 @@ on top of the CPU gauge, and qmllint was perfectly happy. Anchoring the centre
 stage to the panel's right edge fixed it, but only after seeing it rendered —
 and the fix then had to be made conditional, because ASSISTANT mode has no
 panel and was left visibly off-centre by the first version of it.
+
+## Round 7 — softness, and using light sparingly
+
+**I had over-applied the thing I built last round.** Round 5 added bloom and
+then put it on every panel. Uniform light is not atmosphere, it is a raised
+noise floor: if every frame glows, the glow distinguishes nothing. Panels now
+default to dark and expose an `attention` property, and exactly two things use
+it — the vitals rail while a condition is escalated, and the console for a
+moment after it gains a line. The light means "look here" again because it is
+no longer always on. Worth recording as a pattern: adding an effect and
+applying it everywhere are two separate decisions, and the second one deserves
+its own scrutiny.
+
+**Two dimming factors stacked to zero.** Converting the orb's standing arcs to
+tapers, I kept their existing `tintDim` colour. The taper supplies falloff and
+`tintDim` supplies falloff, so the arcs vanished entirely against the core
+bloom — the render came back with a visibly empty ring. When swapping a
+technique in, check what the old technique was already doing; the two are not
+additive in the way you expect.
+
+**`Repeater` cannot produce `ShapePath`.** It requires `Item` delegates and
+emits "Delegate must be of Item type", then draws nothing. Building the
+segments imperatively into `Shape.data` works, but trades a declarative
+guarantee for manual lifetime management — which is exactly where the next bug
+came from.
+
+**The manual leak probe passed; the real test failed.** I checked for leaked
+segments by logging `Shape.data.length` after thrashing the sweep, and it
+reported the correct 30. The QML test reported 60. The probe was wrong:
+`destroy()` is deferred to the next event-loop pass, and `data` is not
+notifiable, so the reading was stale twice over. The leak was real and would
+have grown every time an animated sweep crossed a segment-count boundary.
+Fixed by tracking the created objects in an owned list and releasing them on
+destruction. The lesson is uncomfortable: I nearly accepted a hand-rolled check
+as verification when it was measuring the wrong thing at the wrong time.
+
+**Being precise about what multisampling does.** It was tempting to describe
+`setSamples(4)` as fixing the "too solid" look. It does not: it is inert under
+the software backend used for every screenshot in this repo, and `Shape` with
+`CurveRenderer` already antialiases. It genuinely helps `Rectangle` borders and
+rotated edges on the hardware path, which is worth having, and the comment in
+`__main__.py` now says exactly that and nothing more. The softness the user
+asked for came from the taper, not from MSAA.

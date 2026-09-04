@@ -270,38 +270,29 @@ Item {
             loops: Animation.Infinite
         }
 
-        Shape {
+        // Comet-profiled: brightest at the leading end and fading back along
+        // the tail, so the direction of rotation is legible from the stroke
+        // itself rather than only from watching it move.
+        TaperedArc {
             anchors.fill: parent
-            asynchronous: true
-            preferredRendererType: Shape.CurveRenderer
+            arcRadius: root.outerRadius * 0.86
+            startAngle: 20
+            sweepAngle: 140 * root.bootProgress
+            color: root.coreColor
+            thickness: Theme.strokeThin
+            peakPosition: 0.92
+            falloff: 1.9
+        }
 
-            ShapePath {
-                strokeColor: root.coreColor
-                strokeWidth: Theme.strokeThin
-                fillColor: "transparent"
-                capStyle: ShapePath.FlatCap
-
-                PathAngleArc {
-                    centerX: root.centreX; centerY: root.centreY
-                    radiusX: root.outerRadius * 0.86; radiusY: root.outerRadius * 0.86
-                    startAngle: 20
-                    sweepAngle: 140 * root.bootProgress
-                }
-            }
-
-            ShapePath {
-                strokeColor: root.coreColor
-                strokeWidth: Theme.strokeThin
-                fillColor: "transparent"
-                capStyle: ShapePath.FlatCap
-
-                PathAngleArc {
-                    centerX: root.centreX; centerY: root.centreY
-                    radiusX: root.outerRadius * 0.86; radiusY: root.outerRadius * 0.86
-                    startAngle: 200
-                    sweepAngle: 140 * root.bootProgress
-                }
-            }
+        TaperedArc {
+            anchors.fill: parent
+            arcRadius: root.outerRadius * 0.86
+            startAngle: 200
+            sweepAngle: 140 * root.bootProgress
+            color: root.coreColor
+            thickness: Theme.strokeThin
+            peakPosition: 0.92
+            falloff: 1.9
         }
     }
 
