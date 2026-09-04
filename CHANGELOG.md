@@ -78,6 +78,13 @@ monitor loses nothing.
 - Pointer parallax has not been exercised with a real mouse; only the binding
   path was verified.
 
+### Fixed (docs)
+- `docs/images/hud-diagnostics.png` — the README's lead screenshot — was still
+  the M6 render, predating both attention escalation and the motion language.
+  Regenerated, so the first image a reader sees matches the current build.
+- `docs/images/hud-monitor.png` was committed but referenced by no document.
+  Now shown in the README with the reactor core in `PROCESSING`.
+
 ### Considered and rejected
 - The `waveform-bar` audio visualiser from the reference project. We have no
   audio input, so animating it would be fabricating a signal.

@@ -47,6 +47,13 @@ anything the kernel will not report is shown as unavailable rather than faked.
 
 ![Boot sequence](docs/images/hud-boot.png)
 
+*Power-on: rings tracing themselves in as the name assembles.*
+
+![Monitor mode](docs/images/hud-monitor.png)
+
+*`MONITOR` mode with the reactor core in `PROCESSING` — the amber sweep runs only
+while the assistant is actually working.*
+
 ![Attention escalation](docs/images/hud-alert.png)
 
 *A sustained memory-pressure condition escalated into the main display. The header
