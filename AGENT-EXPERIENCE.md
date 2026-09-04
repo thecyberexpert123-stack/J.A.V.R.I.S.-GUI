@@ -538,3 +538,53 @@ the software backend used for every screenshot in this repo, and `Shape` with
 rotated edges on the hardware path, which is worth having, and the comment in
 `__main__.py` now says exactly that and nothing more. The softness the user
 asked for came from the taper, not from MSAA.
+
+## Round 8 — wiring to the real backend
+
+**Reading the docs would have shipped a lie.** The backend publishes
+`jarvis_do` as `explicit-allow`, and the obvious implementation is a
+confirmation dialog on every `do`. I nearly built that. Driving the actual
+kernel instead showed something different: `jarvis_do "install htop"` ran
+`apt-get install -y -- htop` immediately, with no refusal and nothing to
+approve. The gate is per-*tier*, not per-tool — only tier 2 asks, and tier 3
+refuses no matter what anyone clicks.
+
+Both possible UIs built on the doc-only reading would have misrepresented the
+system. A dialog on every `do` implies the GUI is holding the gate when the
+kernel is; no dialog at all would have missed the tier-2 case entirely. The
+correct design — surface the kernel's decision, never invent one — was only
+visible from the live behaviour. Two probes against a running binary were worth
+more than the whole document.
+
+**`isError` means two different things.** A refusal and a genuine failure both
+arrive with `isError: true`, separated only by `outcome.status == "refused"`.
+Had I taken the flag at face value, the HUD would have reported the safety
+kernel *working correctly* as a malfunction — teaching the operator to distrust
+exactly the component most worth trusting.
+
+**A bug that tests would not have caught.** I wired the consent path referencing
+`self._last_do_request`, a field I never assigned. Every unit test passed;
+`import` succeeded; qmllint was clean. It would have raised `AttributeError` the
+first time a real tier-2 refusal arrived — that is, only ever in front of a user,
+only ever at the security-critical moment. It surfaced because I ran the whole
+flow against the live kernel rather than trusting green gates. Static checks
+verify the paths you wrote; only execution verifies the paths you forgot.
+
+**Designing a dialog to be hard to answer.** The consent prompt has no default
+button, no focus, no Enter binding and no timeout, and its buttons are
+pointer-only. Every one of those is a deliberate removal of a convenience.
+Consent that a keyboard rhythm can complete by accident is not consent, and an
+unattended machine must not drift into either answer. Escape declines, because
+the reflexive exit should be the safe one.
+
+**Honest discovery, not helpful guessing.** `available()` initially returned
+false whenever the kernel lived in a venv rather than on `PATH`. The fix was to
+search exactly one additional location — the running interpreter's own bin
+directory, which is unambiguously the same install — and stop there. Scanning
+likely paths would have been more convenient and would have meant the GUI could
+execute a binary the operator never pointed it at.
+
+I did not run the approve path to completion: it was a real `apt` upgrade in
+this sandbox. I verified that consent is re-sent verbatim with `allow: true` and
+that the kernel accepts it, then cut the process off. Recording that boundary
+matters more than claiming a clean finish.

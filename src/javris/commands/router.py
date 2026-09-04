@@ -37,6 +37,12 @@ class CommandResult:
     mode: str | None = None
     #: True when the command asked the application to exit.
     shutdown: bool = False
+    #: Agent bridge tool to invoke, when the verb maps to one; otherwise ``None``.
+    agent_tool: str | None = None
+    #: Free-text argument for :attr:`agent_tool`.
+    agent_argument: str = ""
+    #: True when the verb asks to close the agent connection.
+    agent_disconnect: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +79,28 @@ class CommandRouter:
             ),
             CommandSpec("clear", "Clear the console log.", CommandRouter._cmd_clear),
             CommandSpec("shutdown", "Close the HUD.", CommandRouter._cmd_shutdown),
+            # Agent verbs, per javris-frontend/1 section 5. Each maps to
+            # exactly one bridge call; none of them executes a shell.
+            CommandSpec(
+                "ask",
+                "Ask the agent a question: ask <question>.",
+                CommandRouter._cmd_ask,
+            ),
+            CommandSpec(
+                "plan",
+                "Show the agent's plan without running it: plan <request>.",
+                CommandRouter._cmd_plan,
+            ),
+            CommandSpec(
+                "do",
+                "Ask the agent to carry out a request: do <request>.",
+                CommandRouter._cmd_do,
+            ),
+            CommandSpec(
+                "agent",
+                "Agent connection: agent status | agent disconnect.",
+                CommandRouter._cmd_agent,
+            ),
         ):
             self._specs[spec.verb] = spec
 
@@ -133,3 +161,71 @@ class CommandRouter:
 
     def _cmd_shutdown(self, _args: tuple[str, ...]) -> CommandResult:
         return CommandResult(Severity.WARN, "Shutting down.", shutdown=True)
+
+    # -- agent verbs -------------------------------------------------------
+    #
+    # These do not talk to the kernel themselves. The router stays a pure
+    # parser: it decides *which* tool a line means and hands that decision to
+    # the controller, which owns the bridge. Keeping the parse side-effect-free
+    # is what lets the whole vocabulary be tested without a subprocess.
+
+    @staticmethod
+    def _joined(args: tuple[str, ...]) -> str:
+        return " ".join(args).strip()
+
+    def _cmd_ask(self, args: tuple[str, ...]) -> CommandResult:
+        question = self._joined(args)
+        if not question:
+            return CommandResult(Severity.WARN, "Usage: ask <question>")
+        return CommandResult(
+            Severity.INFO,
+            f"Asking the agent: {question}",
+            agent_tool="jarvis_explain",
+            agent_argument=question,
+        )
+
+    def _cmd_plan(self, args: tuple[str, ...]) -> CommandResult:
+        request = self._joined(args)
+        if not request:
+            return CommandResult(Severity.WARN, "Usage: plan <request>")
+        return CommandResult(
+            Severity.INFO,
+            f"Requesting a plan for: {request}",
+            agent_tool="jarvis_preview",
+            agent_argument=request,
+        )
+
+    def _cmd_do(self, args: tuple[str, ...]) -> CommandResult:
+        request = self._joined(args)
+        if not request:
+            return CommandResult(Severity.WARN, "Usage: do <request>")
+        # Deliberately routed WITHOUT consent. The kernel decides whether this
+        # request needs it, and only a subsequent explicit owner action may
+        # send allow:true. The console can never pre-authorise anything.
+        return CommandResult(
+            Severity.INFO,
+            f"Sending to the agent: {request}",
+            agent_tool="jarvis_do",
+            agent_argument=request,
+        )
+
+    def _cmd_agent(self, args: tuple[str, ...]) -> CommandResult:
+        if not args:
+            return CommandResult(Severity.WARN, "Usage: agent status | agent disconnect")
+        action = args[0].lower()
+        if action == "status":
+            return CommandResult(
+                Severity.INFO,
+                "Querying the agent.",
+                agent_tool="jarvis_status",
+            )
+        if action == "disconnect":
+            return CommandResult(
+                Severity.WARN,
+                "Disconnecting the agent.",
+                agent_disconnect=True,
+            )
+        return CommandResult(
+            Severity.ERROR,
+            f"Unknown agent action '{args[0]}'. Use: status | disconnect.",
+        )

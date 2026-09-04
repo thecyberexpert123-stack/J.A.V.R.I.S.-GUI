@@ -10,6 +10,8 @@ from __future__ import annotations
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
 from .attention import Alert, AttentionMonitor, MetricReading, Prominence
+from .bridge.client import KernelClient
+from .bridge.protocol import Outcome, OutcomeKind
 from .commands.router import CommandRouter, Severity
 from .state import AssistantState, InvalidTransitionError, can_transition
 from .telemetry.models import TelemetrySnapshot
@@ -105,6 +107,22 @@ class HudController(QObject):
         # Static host facts, read once: these cannot change while we run, so
         # polling them every frame would be waste.
         self._identity = ProcReader().read_host_identity()
+
+        # -- agent bridge ---------------------------------------------------
+        # Created but NOT started: connecting is an explicit act, and a HUD
+        # that silently spawned a privileged agent on launch would be exactly
+        # the kind of surprise this project avoids.
+        self._kernel = KernelClient(self)
+        self._kernel.connected.connect(self._on_kernel_connected)
+        self._kernel.disconnected.connect(self._on_kernel_disconnected)
+        self._kernel.completed.connect(self._on_kernel_completed)
+        self._kernel.started.connect(self._on_kernel_started)
+        #: Request awaiting the owner's decision, or an empty string.
+        self._pending_consent: str = ""
+        #: The most recent jarvis_do request text. Held so that a refusal can
+        #: be re-sent verbatim after consent -- the owner must approve the
+        #: exact request they were shown, never a reconstruction of it.
+        self._last_do_request: str = ""
         self._log: list[str] = []
         self._windowed = False
         self._attention = AttentionMonitor()
@@ -305,6 +323,10 @@ class HudController(QObject):
         self.append_log(result.severity, result.message)
         if result.mode is not None and result.mode != self._mode:
             self._set_mode(result.mode)
+        if result.agent_disconnect:
+            self._disconnect_agent()
+        if result.agent_tool is not None:
+            self._dispatch_agent(result.agent_tool, result.agent_argument)
         if result.shutdown:
             self.stop()
             self.shutdownRequested.emit()
@@ -567,3 +589,149 @@ class HudController(QObject):
             ),
         ]
         return [f"{label}\x1f{value}" for label, value in rows if value]
+
+    # -- agent bridge ---------------------------------------------------------
+
+    agentChanged = Signal()
+    consentChanged = Signal()
+
+    @Property(bool, notify=agentChanged)
+    def agentConnected(self) -> bool:  # noqa: N802
+        """True once the kernel handshake has completed."""
+        return self._kernel.ready
+
+    @Property(str, notify=agentChanged)
+    def agentVersion(self) -> str:  # noqa: N802
+        """Kernel version string, or empty when not connected."""
+        return self._kernel.version
+
+    @Property(bool, notify=agentChanged)
+    def agentAvailable(self) -> bool:  # noqa: N802
+        """True when a jarvis executable exists on PATH."""
+        return KernelClient.available()
+
+    @Property(str, notify=consentChanged)
+    def pendingConsent(self) -> str:  # noqa: N802
+        """The request awaiting an owner decision, or an empty string.
+
+        While this is non-empty the UI must show a consent prompt. It is the
+        only path by which ``allow: true`` can ever be sent.
+        """
+        return self._pending_consent
+
+    @Slot()
+    def connectAgent(self) -> None:  # noqa: N802
+        """Spawn the kernel and begin the handshake."""
+        if self._kernel.ready:
+            self.append_log(Severity.INFO, "Agent already connected.")
+            return
+        self.append_log(Severity.INFO, "Connecting to the JARVIS kernel...")
+        self._request_state_quietly(AssistantState.PROCESSING)
+        if not self._kernel.start():
+            self._request_state_quietly(AssistantState.OFFLINE)
+
+    @Slot()
+    def approveConsent(self) -> None:  # noqa: N802
+        """Re-send the pending request with the owner's explicit consent.
+
+        This is the *only* place ``allow=True`` originates, and it is reachable
+        only from a deliberate UI action. It clears the pending request first,
+        so one approval can authorise exactly one call.
+        """
+        request = self._pending_consent
+        if not request:
+            return
+        self._pending_consent = ""
+        self.consentChanged.emit()
+        self.append_log(Severity.WARN, f"Consent given. Executing: {request}")
+        self._request_state_quietly(AssistantState.EXECUTING)
+        if not self._kernel.execute(request, allow=True, tag="do"):
+            self.append_log(Severity.ERROR, "The agent is not connected.")
+            self._request_state_quietly(AssistantState.ERROR)
+
+    @Slot()
+    def declineConsent(self) -> None:  # noqa: N802
+        """Dismiss the consent prompt without acting."""
+        if not self._pending_consent:
+            return
+        self._pending_consent = ""
+        self.consentChanged.emit()
+        self.append_log(Severity.INFO, "Declined. Nothing was run.")
+        self._request_state_quietly(AssistantState.STANDBY)
+
+    def _disconnect_agent(self) -> None:
+        self._kernel.stop()
+
+    def _dispatch_agent(self, tool: str, argument: str) -> None:
+        """Send one tool call on behalf of a console verb."""
+        if not self._kernel.ready:
+            self.append_log(
+                Severity.ERROR,
+                "The agent is not connected. Use the connect action first.",
+            )
+            return
+
+        self._request_state_quietly(AssistantState.PROCESSING)
+        if tool == "jarvis_do":
+            # Never pre-authorised: the kernel decides whether this needs
+            # consent, and only approveConsent() may answer that question.
+            self._last_do_request = argument
+            self._kernel.execute(argument, allow=False, tag="do")
+        elif tool == "jarvis_explain":
+            self._kernel.call(tool, {"question": argument}, tag="explain")
+        elif tool == "jarvis_preview":
+            self._kernel.call(tool, {"request": argument}, tag="preview")
+        else:
+            self._kernel.call(tool, {}, tag=tool)
+
+    def _on_kernel_started(self, _tag: str) -> None:
+        self._request_state_quietly(AssistantState.PROCESSING)
+
+    def _on_kernel_connected(self, version: str) -> None:
+        self.append_log(Severity.OK, f"Agent connected. Kernel {version}.")
+        self.agentChanged.emit()
+        self._request_state_quietly(AssistantState.STANDBY)
+
+    def _on_kernel_disconnected(self, reason: str) -> None:
+        self.append_log(Severity.WARN, reason)
+        self.agentChanged.emit()
+        if self._pending_consent:
+            self._pending_consent = ""
+            self.consentChanged.emit()
+        # Telemetry keeps running: losing the agent must never take the HUD
+        # down with it (honest degradation, never a faked agent).
+        self._request_state_quietly(AssistantState.STANDBY)
+
+    def _on_kernel_completed(self, tag: str, outcome: Outcome) -> None:
+        """Render one tool result and move the state machine accordingly."""
+        if outcome.kind is OutcomeKind.REFUSED:
+            self.append_log(Severity.WARN, outcome.text)
+            if outcome.hint:
+                self.append_log(Severity.INFO, outcome.hint)
+            if outcome.consent_required and tag == "do":
+                # Hold the request so approveConsent() has something to send.
+                # Storing the text is not authorisation; only the owner's
+                # action is.
+                self._pending_consent = self._last_do_request
+                self.consentChanged.emit()
+            self._request_state_quietly(AssistantState.STANDBY)
+            return
+
+        if outcome.kind in (OutcomeKind.FAILED, OutcomeKind.PROTOCOL_ERROR):
+            self.append_log(Severity.ERROR, outcome.text)
+            self._request_state_quietly(AssistantState.ERROR)
+            return
+
+        self._request_state_quietly(AssistantState.SPEAKING)
+        self.append_log(Severity.OK, outcome.text)
+        self._request_state_quietly(AssistantState.STANDBY)
+
+    def _request_state_quietly(self, target: AssistantState) -> None:
+        """Move to ``target`` when the transition table permits it.
+
+        Illegal transitions are skipped rather than logged as errors: the
+        bridge reports what the kernel is doing, and the state table is the
+        authority on which of those reports can be represented right now.
+        """
+        if can_transition(self._state, target):
+            self.set_state(target)

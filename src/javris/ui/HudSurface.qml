@@ -127,6 +127,17 @@ Item {
         y: hudSurface.parallaxY * Theme.parallaxFar
     }
 
+    // Consent prompt. Declared last among the top-level children so it paints
+    // above every other layer: while a consent decision is outstanding it must
+    // own the display completely.
+    ConsentPrompt {
+        anchors.fill: parent
+        z: 100
+        request: hudSurface.controller.pendingConsent
+        onApproved: hudSurface.controller.approveConsent()
+        onDeclined: hudSurface.controller.declineConsent()
+    }
+
     // Screen-edge brackets. Drawn at the very edge of the display so the whole
     // surface reads as a framed instrument rather than a page of widgets.
     CornerBrackets {

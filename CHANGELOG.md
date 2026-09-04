@@ -7,6 +7,23 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Backend bridge to the J.A.V.R.I.S. kernel** (`src/javris/bridge/`). This GUI
+  is now the front-end for the sibling `jarvis-agent` backend, speaking its
+  published `javris-frontend/1` contract over newline-delimited JSON-RPC on
+  stdio. `protocol.py` is Qt-free and I/O-free so that framing and — more
+  importantly — consent classification are testable without a subprocess;
+  `client.py` owns the `QProcess`, with separate stdout/stderr channels so a
+  diagnostic banner can never be parsed as a protocol frame.
+- **Consent prompt** (`ConsentPrompt.qml`, `ConsentButton.qml`). Shown only when
+  the kernel refuses a tier-2 action pending approval. It quotes the request
+  verbatim, has no default action, no timeout and no keyboard activation;
+  Escape declines. The exact text the owner was shown is what gets re-sent.
+- **Console verbs** `ask`, `plan`, `do`, `agent status` and `agent disconnect`.
+  The agent is not started automatically: spawning a process that can change the
+  machine is the owner's decision.
+- `docs/BACKEND-BRIDGE.md` — the wiring contract as *verified against a running
+  kernel*, including the places where live behaviour differs from a first
+  reading of the backend's docs.
 - **`TaperedArc`** — an arc whose stroke fades along its own length. Qt Quick
   has no per-length stroke gradient, so this builds the effect from short
   overlapping segments on an eased opacity profile. Uniform arcs read as hard
