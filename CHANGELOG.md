@@ -6,6 +6,17 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Verified
+- **Bridge re-verified against kernel 1.20.0.** The backend moved 1.18.0 →
+  1.19.0 (ADR-0025) → 1.20.0 (ADR-0026) during this work. Probed rather than
+  assumed: the six-tool surface, argument schemas, handshake version, doorway
+  `Server` header, `classify_outcome` and `parse_plan` all still hold. ADR-0026's
+  new `gui.app`/`gui.launch` playbooks (57 → 58) parse, gate at tier 2 and
+  decline correctly with no GUI change, because the bridge models plan *shape*
+  rather than a list of known playbooks. Version references in
+  `docs/BACKEND-BRIDGE.md`, `bridge/plan.py`, `bridge/consent.py` and
+  `bridge/resident.py` updated from 1.18.0 to the version actually tested.
+
 ### Added
 - **Resident-mode transport** (`bridge/resident.py`, `bridge/resident_client.py`).
   Optional connection to the kernel's loopback doorway (ADR-0018) instead of

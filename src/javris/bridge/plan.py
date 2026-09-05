@@ -13,7 +13,7 @@ does encode is :attr:`Plan.irreversible`, because "can this be taken back?" is
 a property of the kernel's own ``undo.status`` field and should be read the
 same way everywhere.
 
-Verified against live payloads from kernel 1.18.0; see ``docs/BACKEND-BRIDGE.md``.
+Verified against live payloads from kernel 1.20.0; see ``docs/BACKEND-BRIDGE.md``.
 """
 
 from __future__ import annotations

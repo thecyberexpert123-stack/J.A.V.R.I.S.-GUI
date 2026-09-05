@@ -8,7 +8,7 @@ how we consume it — including several places where the live kernel does not
 behave the way a first reading of the documentation suggests.
 
 Everything below marked **verified** was observed against a running kernel in
-this workspace, at version **1.18.0**. Nothing here is inferred from the
+this workspace, at version **1.20.0**. Nothing here is inferred from the
 backend's documentation alone. Where the backend's own wiring doc
 (`docs/integration/JAVRIS-GUI.md`, last revised for 1.12.0) and the running
 kernel disagree, the running kernel wins and the difference is noted.
@@ -34,7 +34,7 @@ that can change the machine is the owner's decision.
 ### On-demand specifics
 
 Protocol version `2025-03-26`; the server echoes the client's date version
-verbatim. `serverInfo` reports `{"name": "jarvis", "version": "1.18.0"}`.
+verbatim. `serverInfo` reports `{"name": "jarvis", "version": "1.20.0"}`.
 
 stderr carries a human banner and **must never be parsed as protocol** — the
 `QProcess` runs in `SeparateChannels` mode precisely so a diagnostic line can
@@ -64,7 +64,7 @@ from ADR-0018:
 This client refuses any non-loopback endpoint before a request is built, and
 refuses a token file readable by group or other. The token is sent only as an
 `Authorization` header — never in a URL, never logged. The kernel version is
-read from the `Server` header (`jarvis-serve/1.18.0 Python/3.11.2`).
+read from the `Server` header (`jarvis-serve/1.20.0 Python/3.11.2`).
 
 When the doorway is missing or its token unreadable, that is an honest
 "not configured" and the GUI falls back to spawning. It is never an error.
@@ -261,18 +261,48 @@ is the one that must not drift.
 
 ## Verified end-to-end
 
-Against the live kernel at 1.18.0, through the real `Controller`:
+Against the live kernel at 1.20.0, through the real `Controller`:
 
-- **stdio:** handshake → `1.18.0`; `explain` → `OK`
-- **resident:** health → `1.18.0` from the `Server` header; refusal classified
+- **stdio:** handshake → `1.20.0`; `explain` → `OK`
+- **resident:** health → `1.20.0` from the `Server` header; refusal classified
   identically to stdio (consent parity)
 - **transport selection:** resident preferred when installed; falls back to
   spawning when the token is absent
 - **gate 2** fires on tier-1 `rm` (irreversible), showing argv and paths
 - **gate 1** fires on tier-2 `restart` (reversible), showing the T2 badge
 - **unmatched** request produces no dialog — the kernel's refusal-to-guess and
-  57 playbook names instead
+  58 playbook names instead
 - decline → nothing runs; approve → re-sent verbatim with `allow: true`
+
+### Re-verified against 1.20.0 (ADR-0026)
+
+The kernel moved 1.18.0 → 1.19.0 (ADR-0025) → 1.20.0 (ADR-0026, guarded AT-SPI
+app control) without a contract change. Re-probed rather than assumed:
+
+- **Tool surface is unchanged**: the same six tools, the same required
+  arguments, `jarvis_do` still the only one taking `allow`. Nothing the bridge
+  calls has moved.
+- **`serverInfo.version`** → `1.20.0`; the doorway's `Server` header →
+  `jarvis-serve/1.20.0`, still parsed correctly by `resident_client`.
+- **New playbooks appear and are handled without code changes.** ADR-0026 adds
+  `gui.app` and `gui.launch`; the playbook count went 57 → 58. Driving the real
+  `Controller` at `do open firefox` produced `playbook=gui.launch`, `tier=2`,
+  `undo=none_needed`, one step (`setsid --fork firefox`), `ROOT not required`,
+  `NETWORK no` — parsed, gated at tier 2, and declined cleanly. The bridge
+  models the *shape* of a plan rather than a list of known playbooks, which is
+  why a backend feature release cost the GUI nothing.
+- **`classify_outcome` and `parse_plan` were exercised against live 1.20.0
+  payloads** for a matched T1, a matched T2, the new GUI playbook and an
+  unmatched request. No parser raised, and every field the UI binds to was
+  populated.
+
+One asymmetry worth recording, because it looks like a GUI bug and is not:
+`jarvis_do` on an unmatched request returns `status: refused` with
+`tier: 0`, which in isolation reads as "a tier-0 action awaiting consent".
+The GUI never renders it that way because it previews first and keys the
+unmatched branch off `plan.unmatched`, not off the tier. A client that called
+`jarvis_do` directly would show a spurious consent prompt for a request the
+kernel simply did not understand.
 - **voice** (with a stubbed recorder and STT): timestamps and `[BLANK_AUDIO]`
   annotations stripped, transcript delivered to the input field, never executed
 

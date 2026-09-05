@@ -2,7 +2,7 @@
 
 The kernel's safety tiers are authoritative and this front-end never widens
 them. But tiers answer "how much authority does this need?", not "can this be
-taken back?", and those are different questions. Live probing of kernel 1.18.0
+taken back?", and those are different questions. Live probing of kernel 1.20.0
 made the gap concrete:
 
     do remove the file /tmp/x   ->  tier 1, executed immediately,

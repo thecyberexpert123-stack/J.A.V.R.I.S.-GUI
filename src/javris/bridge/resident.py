@@ -202,7 +202,7 @@ def parse_server_header(value: str) -> str:
     """Extract the kernel version from the doorway's ``Server`` header.
 
     The doorway identifies itself as ``jarvis-serve/<version> Python/<x.y.z>``
-    (verified against a running doorway at 1.18.0). This is the only place the
+    (verified against a running doorway at 1.20.0). This is the only place the
     HTTP surface reports its version, and reading it avoids inventing a version
     or leaving the owner with "unknown" for a link that is plainly working.
 
