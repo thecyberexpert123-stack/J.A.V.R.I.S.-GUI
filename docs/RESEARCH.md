@@ -528,3 +528,184 @@ The resolution is to keep the panel and change where its numbers come from:
 desktop with no battery is not degraded; it has no battery. Conflating the two
 would show a permanent false fault on every desktop. Absent readings are hidden;
 degraded readings are announced.
+
+---
+
+## 22. Showing work in progress — what the kernel can actually tell us
+
+The question this round: **when the backend is doing a task, how should the HUD
+show it?** The design is constrained far more by what the kernel emits than by
+what would look good, so the measurements come first.
+
+### 22.1 What the kernel emits during a task — `VERIFIED-LOCAL`
+
+Measured against a live `jarvis mcp serve` at kernel **1.19.0**.
+
+**There are no progress notifications.** The MCP server is strictly
+request/response: `_handle` returns one frame per request and the only
+notification in the contract is `notifications/initialized`, client-to-server.
+Nothing arrives between sending `tools/call` and receiving its result. Verified
+by reading `cli/mcp_server.py` (508 lines, no server-initiated frames) and by
+observing the wire.
+
+**The journal is written during execution, but not usefully.** `Orchestrator`
+calls `begin_task` (status `running`, committed immediately) and then
+`record_step` per step inside the execution loop, each with its own commit. So
+in principle the journal is a live progress source. In practice it is nearly
+useless for progress, because a step row is written **after** the command
+returns. Polling `~/.local/state/jarvis/journal.db` every 30 ms across a
+7.2-second single-step task produced exactly three distinct states:
+
+| Time | Task status | Steps visible |
+|---|---|---|
+| +0.12s | `running` | *(none)* |
+| +7.21s | `succeeded` | both steps, both `succeeded` |
+
+The entire wait is a single opaque interval. **A step-level progress display
+would show "0 of ?" for the whole task and then jump to done.** That rules out
+the dynamic-checklist pattern that the agentic-UX literature otherwise
+recommends — we have the plan, but no live position within it.
+
+**Round-trip durations are bimodal** (measured, same session):
+
+| Call | Duration |
+|---|---|
+| handshake | 0.09 s |
+| `jarvis_status`, `jarvis_facts`, `jarvis_suggest` | ≤ 0.01 s |
+| `jarvis_explain` (KB hit), `jarvis_preview` | ≤ 0.01 s |
+| `jarvis_do` — T2 refusal | 0.01 s |
+| `jarvis_do` — real execution (`ping`) | **7.09 s** |
+| AI provider timeout (`providers/base.py`) | **90 s** budget |
+
+Everything that does not execute a command or call an LLM returns in under
+10 ms. Everything that does can run for seconds to a minute and a half.
+
+**The UI thread is free during a task** — `VERIFIED-LOCAL`. Both transports are
+signal-driven and non-blocking: the spawned client uses `QProcess` with
+`readyReadStandardOutput`/`finished` signals, and the resident client uses
+`QNetworkReply.finished`. Neither blocks on the wait (the only
+`waitForFinished` calls are in teardown). So an animated indicator and a
+running elapsed counter are actually renderable during a 7-second task — worth
+confirming, because a blocking bridge would have made every option below moot.
+
+### 22.2 The literature
+
+**Nielsen's three response-time limits** (from *Usability Engineering*, 1993;
+Miller 1968 found the same breakpoints): 0.1 s feels instantaneous, 1 s keeps
+the user's flow, **10 s is the limit of attention**. Past 10 s users task-switch
+and need to be told when to come back.
+<https://www.nngroup.com/articles/powers-of-10-time-scales-in-ux/>
+
+**Myers (CHI '85)** ran 48 students with and without a percent-done bar:
+**86% preferred having the bar**, even though it made nothing faster. People
+want to know.
+
+**Maister's *Psychology of Waiting Lines* (1985)**, four laws that transfer
+directly: occupied time feels shorter than unoccupied; **uncertain waits feel
+longer than known finite waits**; **unexplained waits feel longer than explained
+waits**; anxious waits feel longer than calm ones.
+
+**Buell & Norton, *Management Science* (2011)** — the **labor illusion**: users
+rated a travel site that narrated its work ("now searching Delta…") as more
+valuable, and preferred a *slower* site that showed its work to a faster one
+that hid it. Visible effort reads as value — but only when the work is real.
+
+**NN/g's threshold rule**: looped animation for 2–10 s, percent-done for 10 s+;
+lower the cutoff when the estimate is uncertain.
+<https://www.nngroup.com/articles/progress-indicators/>
+
+**UX Tigers, "Progress Indicators Ease the Wait" (2026)** — the most directly
+applicable source, because it addresses agentic waits specifically. Two ideas
+govern our design:
+
+- **The denominator problem.** "Percent-done requires a known total, and
+  open-ended knowledge work has none… Faking a percentage would be progress
+  theater with extra steps, so don't."
+- **Progress theater**: "animation that mimics measurement while measuring
+  nothing… fake 'thinking' animations, padded reasoning streams, chirpy status
+  lines that map to no actual work." And the rule that settles every question
+  below: **"tie the display to real measurements, or don't display it."**
+
+Its prescription when percent-done is impossible: the plan as a live step list;
+activity narration in user units; interim artifacts; **elapsed time always,
+remaining time only when honest**; and a completion call for waits past a
+minute. Also: *"An honest slow bar beats a lying fast one."*
+<https://www.uxtigers.com/post/progress-indicators>
+
+**Smashing Magazine, "Practical Interface Patterns For AI Transparency"
+(2026)** — names the four containers and, usefully, when each is wrong: the
+Living Breadcrumb (low-stakes background work), the Dynamic Checklist
+(high-stakes, variable duration), the Thinking Toggle (progressive disclosure
+into raw logs), and the Audit Trail ("real-time transparency is fleeting… if a
+user walks away they miss the checklist").
+<https://www.smashingmagazine.com/2026/05/practical-interface-patterns-ai-transparency/>
+
+### 22.3 What follows for this HUD
+
+Applying the above to the measurements, not to a general idea of "showing
+progress":
+
+### D23 — No percentage, no step counter, no ETA. Ever.
+
+We cannot compute any of them. The kernel gives us no position within a task,
+and step rows land only after the fact. A "step 1 of 2" display would sit at
+1 of 2 for the entire wait and be a lie about position; a percentage would be
+pure invention. This is the denominator problem in its exact form, and the
+answer from the literature is unambiguous: don't fake it.
+
+### D24 — Elapsed time is the honest denominator-free number, and the only number shown.
+
+Wall-clock elapsed is real, measurable by us, and needs nothing from the
+kernel. It is the one quantity we can display without asserting anything we
+do not know.
+
+### D25 — The activity display is a ladder keyed to measured durations.
+
+Because durations are bimodal, one treatment cannot serve both ends. Onset
+thresholds follow Nielsen/NN/g, cut against our own measurements:
+
+| Elapsed | Treatment | Why |
+|---|---|---|
+| < 1 s | nothing beyond the existing state change | Sub-second indicators are visual noise (guideline 1). Covers every read-only call we measured. |
+| 1–10 s | activity indicator + what was asked, no number | The "system is alive" claim, which is all we can honestly make. Covers the 7 s execution case. |
+| > 10 s | the above + elapsed counter + a plain-language note that this is taking a while | Past the attention limit the owner deserves to know it is unbounded, and elapsed is the only honest figure. |
+| > 60 s | the above + the run stays inspectable and the completion is announced on return | Assume the owner has left, and rightly so. |
+
+### D26 — Narrate the request, not the plumbing.
+
+"Executing: restart the ssh service" is a user unit. "tools/call id=7" is not.
+Where a plan was previewed we already hold the step descriptions and argv, so
+the display can name **what was asked for** and, on demand, what will run —
+the labor illusion deployed honestly, because the work is real.
+
+### D27 — The wait is a state of the HUD, not a modal overlay.
+
+The HUD already has an eight-state machine with `PROCESSING` and `EXECUTING`,
+an orb that reflects state, and a reactor whose spin rate is state-driven. A
+foreign modal spinner would be a second, competing status language. The
+existing states *are* the indeterminate indicator; what is missing is the
+**subject** of the wait and its **elapsed time**, not a new widget.
+
+### D28 — Distinguish "working" from "waiting on you".
+
+`PROCESSING` (kernel is busy) and a pending consent prompt (kernel is idle,
+waiting on the owner) are opposite conditions that both suspend the console. If
+they look alike the owner will wait for a machine that is waiting for them.
+The consent prompt already owns the display when it is up; the activity
+indicator must be absent then, not merely behind it.
+
+### D29 — Cancellation must not claim more than it does.
+
+We can stop *listening* to a request, and on the spawned transport we can kill
+the process. Neither retracts a command the kernel has already handed to
+`apt-get`. A control labelled "Cancel" would imply the action is undone. If a
+stop control is offered it says **"Stop waiting"**, and the log records that the
+task may still be running — the same honesty rule as the reversibility gate.
+
+### D30 — The transcript is the audit trail; the indicator is for monitoring.
+
+Real-time transparency is fleeting: an owner who walks away misses it entirely.
+The console log already persists what was asked, what was refused and what ran.
+The activity indicator therefore does not need to be a scrolling record — it
+needs to be glanceable, and the log needs to remain complete enough to answer
+"what happened while I was gone?" afterwards.
