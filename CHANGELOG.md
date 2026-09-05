@@ -6,6 +6,21 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Refusal-to-guess is no longer mislabelled as a consent refusal**
+  (`bridge/protocol.py`, `controller.py`). The kernel answers an unmappable
+  request with `status: "refused"` and `tier: 0`, the same envelope it uses for
+  a genuine consent refusal. `classify_outcome` keyed off the tier alone, so
+  under `confirm KERNEL_ONLY` — the one policy that skips the preview and calls
+  `jarvis_do` directly, bypassing the existing `plan.unmatched` guard — the HUD
+  raised a consent prompt for a request the kernel never understood. Approving
+  it would have re-sent the request and earned the identical refusal.
+  `OutcomeKind.UNMATCHED` now carries the distinction at the classifier, so it
+  holds on every path rather than only the previewed one, and both routes share
+  one `_report_unmatched` renderer. Reported by the backend agent; reproduced
+  against live kernel 1.20.0 before fixing. No safety impact — the kernel never
+  guesses — but it mislabelled the kernel's most honest message.
+
 ### Verified
 - **Bridge re-verified against kernel 1.20.0.** The backend moved 1.18.0 →
   1.19.0 (ADR-0025) → 1.20.0 (ADR-0026) during this work. Probed rather than

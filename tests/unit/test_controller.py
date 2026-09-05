@@ -6,12 +6,14 @@ plain QCoreApplication, so these run headless with no display and no GL.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QCoreApplication
 
 from javris.attention import RAISE_SAMPLES
+from javris.bridge.protocol import classify_outcome
 from javris.controller import (
     _MODES,
     HudController,
@@ -398,3 +400,75 @@ class TestAttentionIntegration:
         controller.cycleMode()
         poll(controller, RAISE_SAMPLES + 2)
         assert controller.alertActive is False
+
+
+# -- refusal-to-guess must never become a consent prompt --------------------
+
+#: The kernel's answer to an unmappable jarvis_do, captured from 1.20.0.
+_UNMATCHED_DO = {
+    "outcome": {
+        "status": "refused",
+        "tier": 0,
+        "playbook": "<unmatched>",
+        "error": (
+            "I cannot map this request to a known playbook and I will not "
+            "guess (anti-hallucination policy)."
+        ),
+        "hint": "Known playbooks: fs.list, fs.read, sys.uptime",
+    }
+}
+
+
+def _do_response(payload: dict[str, object]) -> dict[str, object]:
+    return {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "result": {
+            "isError": True,
+            "content": [{"type": "text", "text": json.dumps(payload)}],
+        },
+    }
+
+
+def test_unmatched_do_raises_no_consent_prompt_under_kernel_only(
+    controller: HudController,
+) -> None:
+    # Under KERNEL_ONLY the GUI skips the preview and calls jarvis_do
+    # directly, so the plan.unmatched guard never runs. The classifier has to
+    # carry the distinction on its own, or the owner is asked to approve a
+    # request the kernel never understood -- and approving it would simply
+    # earn the identical refusal.
+    assert controller.setConfirmPolicy("KERNEL_ONLY") is True
+    controller._last_do_request = "clean up disk space"
+    controller._on_kernel_completed("do", classify_outcome(_do_response(_UNMATCHED_DO)))
+
+    assert controller.pendingConsent == ""
+    assert controller.consentGate == ""
+    joined = " ".join(controller.log).lower()
+    assert "will not guess" in joined
+    # The consent sentence must not appear for a request that cannot be run.
+    assert "needs your explicit consent" not in joined
+
+
+def test_unmatched_do_lists_what_the_kernel_can_do(controller: HudController) -> None:
+    assert controller.setConfirmPolicy("KERNEL_ONLY") is True
+    controller._on_kernel_completed("do", classify_outcome(_do_response(_UNMATCHED_DO)))
+    joined = " ".join(controller.log)
+    assert "sys.uptime" in joined
+
+
+def test_genuine_consent_refusal_still_prompts(controller: HudController) -> None:
+    # The counterweight: a real T2 refusal must still reach the owner as a
+    # decision point, or the fix above would have disabled the consent gate.
+    payload = {
+        "outcome": {
+            "status": "refused",
+            "tier": 2,
+            "hint": 're-call jarvis_do with "allow": true to consent explicitly',
+        }
+    }
+    controller._last_do_request = "upgrade the whole system"
+    controller._on_kernel_completed("do", classify_outcome(_do_response(payload)))
+
+    assert controller.pendingConsent == "upgrade the whole system"
+    assert controller.consentGate == "KERNEL_CONSENT"

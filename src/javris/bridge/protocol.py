@@ -69,6 +69,11 @@ class OutcomeKind(str, Enum):
     OK = "OK"
     #: T2 work declined for want of explicit consent. Not an error.
     REFUSED = "REFUSED"
+    #: The kernel could not map the request to a playbook and declined to
+    #: guess. Also a refusal, but one no consent can resolve: there is no
+    #: action to authorise. Kept distinct from REFUSED so the UI cannot offer
+    #: an approval that would do nothing.
+    UNMATCHED = "UNMATCHED"
     #: The kernel ran something and it did not succeed.
     FAILED = "FAILED"
     #: Malformed frame, unknown id, or unparseable payload.
@@ -239,6 +244,24 @@ def classify_outcome(message: dict[str, Any]) -> Outcome:
     tier = tier if isinstance(tier, int) else None
     hint = str(outcome.get("hint") or "")
 
+    if status == "refused" and _is_unmatched(outcome):
+        # The kernel's refusal-to-guess. It carries a tier (0), so keying off
+        # the tier alone would render it as "this tier-0 action needs your
+        # consent" -- a consent prompt for a request that was never understood,
+        # where approving re-sends it and gets the identical refusal. Surface
+        # the kernel's own sentence instead; it is the honest one.
+        return Outcome(
+            kind=OutcomeKind.UNMATCHED,
+            text=_cap(
+                str(outcome.get("error") or "").strip()
+                or "The kernel could not map that request to a known playbook."
+            ),
+            hint=_cap(hint),
+            tier=tier,
+            consent_required=False,
+            payload=payload,
+        )
+
     if status == "refused":
         return Outcome(
             kind=OutcomeKind.REFUSED,
@@ -266,6 +289,27 @@ def classify_outcome(message: dict[str, Any]) -> Outcome:
         tier=tier,
         payload=payload,
     )
+
+
+#: The kernel's sentinel in ``outcome.playbook`` when nothing matched. Defined
+#: in ``plan.py`` too, but duplicated rather than imported: ``protocol`` is the
+#: lower layer and must not depend on the plan model.
+_UNMATCHED_SENTINEL = "<unmatched>"
+
+
+def _is_unmatched(outcome: dict[str, Any]) -> bool:
+    """Whether this refusal is "I will not guess" rather than "I need consent".
+
+    The structured sentinel is the primary signal; the prose check is a
+    fallback for the case where the field is absent, and is deliberately
+    narrow. Getting this wrong in the *safe* direction means showing a consent
+    prompt that does nothing, so the test errs toward treating a refusal as a
+    consent refusal unless the kernel is clearly declining to guess.
+    """
+    if str(outcome.get("playbook") or "").strip() == _UNMATCHED_SENTINEL:
+        return True
+    error = str(outcome.get("error") or "").lower()
+    return "cannot map this request" in error
 
 
 def _refusal_text(outcome: dict[str, Any], tier: int | None) -> str:

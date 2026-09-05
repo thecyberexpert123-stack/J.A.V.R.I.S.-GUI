@@ -1026,6 +1026,13 @@ class HudController(QObject):
             self._resolve_staged_request(outcome)
             return
 
+        if outcome.kind is OutcomeKind.UNMATCHED:
+            # No consent prompt: there is no action to authorise. Reported the
+            # same way whether or not a preview happened to run first.
+            self._report_unmatched(outcome.text, outcome.hint)
+            self._request_state_quietly(AssistantState.STANDBY)
+            return
+
         if outcome.kind is OutcomeKind.REFUSED:
             self.append_log(Severity.WARN, outcome.text)
             if outcome.hint:
@@ -1056,6 +1063,23 @@ class HudController(QObject):
         self.append_log(Severity.OK, outcome.text)
         self._request_state_quietly(AssistantState.STANDBY)
 
+    def _report_unmatched(self, error: str, hint: str) -> None:
+        """Show the kernel's refusal-to-guess, and never a consent prompt.
+
+        Shared by both routes into this state -- the previewed one and the
+        direct ``jarvis_do`` under ``KERNEL_ONLY`` -- so the owner sees the
+        same thing regardless of which gate policy is in force.
+        """
+        self.append_log(Severity.WARN, error or "The kernel could not map that request.")
+        names = known_playbooks(hint)
+        if names:
+            self.append_log(
+                Severity.INFO,
+                f"{len(names)} known playbooks, including: " + ", ".join(names[:8]) + ".",
+            )
+        elif hint:
+            self.append_log(Severity.INFO, hint)
+
     def _resolve_staged_request(self, outcome: Outcome) -> None:
         """Decide what to do with a `do` whose preview has just returned.
 
@@ -1070,15 +1094,7 @@ class HudController(QObject):
         plan = self._last_plan
 
         if plan is not None and plan.unmatched:
-            self.append_log(Severity.WARN, plan.error or "The kernel could not map that request.")
-            names = known_playbooks(plan.hint)
-            if names:
-                self.append_log(
-                    Severity.INFO,
-                    f"{len(names)} known playbooks, including: " + ", ".join(names[:8]) + ".",
-                )
-            elif plan.hint:
-                self.append_log(Severity.INFO, plan.hint)
+            self._report_unmatched(plan.error, plan.hint)
             self._request_state_quietly(AssistantState.STANDBY)
             return
 

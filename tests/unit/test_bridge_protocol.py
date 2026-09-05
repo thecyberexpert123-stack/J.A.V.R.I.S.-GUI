@@ -230,3 +230,65 @@ def test_spawn_argv_is_fixed_and_shell_free() -> None:
     assert protocol.SPAWN_ARGV == ("jarvis", "mcp", "serve")
     for token in protocol.SPAWN_ARGV:
         assert not any(char in token for char in ";|&$`><\n")
+
+
+# -- refusal-to-guess versus consent refusal --------------------------------
+
+#: Verbatim shape of an unmatched jarvis_do, captured from kernel 1.20.0. The
+#: kernel reports status "refused" with tier 0 and the <unmatched> sentinel.
+UNMATCHED_PAYLOAD = {
+    "outcome": {
+        "status": "refused",
+        "tier": 0,
+        "playbook": "<unmatched>",
+        "error": (
+            "I cannot map this request to a known playbook and I will not "
+            "guess (anti-hallucination policy)."
+        ),
+        "hint": "Known playbooks: fs.list, fs.read, fs.head, sys.uptime",
+        "snapshot": None,
+    }
+}
+
+
+def test_refusal_to_guess_is_not_a_consent_refusal() -> None:
+    # The kernel answers an unmappable request with status "refused" and
+    # tier 0. Keyed off the tier alone that renders as "this tier-0 action
+    # needs your consent" -- a prompt for an action that does not exist, where
+    # approving re-sends the request and earns the identical refusal.
+    outcome = protocol.classify_outcome(tool_response(UNMATCHED_PAYLOAD, is_error=True))
+    assert outcome.kind is OutcomeKind.UNMATCHED
+    assert outcome.consent_required is False
+    # The kernel's own sentence, not a manufactured consent sentence.
+    assert "will not guess" in outcome.text
+    assert "consent" not in outcome.text.lower()
+
+
+def test_unmatched_is_detected_without_the_sentinel_field() -> None:
+    # Older or partial payloads may omit "playbook". The prose fallback keeps
+    # the classification correct rather than falling back to a consent prompt.
+    payload = {
+        "outcome": {
+            "status": "refused",
+            "tier": 0,
+            "error": "I cannot map this request to a known playbook.",
+        }
+    }
+    outcome = protocol.classify_outcome(tool_response(payload, is_error=True))
+    assert outcome.kind is OutcomeKind.UNMATCHED
+    assert outcome.consent_required is False
+
+
+def test_genuine_consent_refusal_is_still_offered_for_approval() -> None:
+    # The guard must not swallow real consent refusals: a T2 action carries no
+    # <unmatched> sentinel and must still reach the owner as a decision.
+    outcome = protocol.classify_outcome(tool_response(REFUSAL_PAYLOAD, is_error=True))
+    assert outcome.kind is OutcomeKind.REFUSED
+    assert outcome.consent_required is True
+
+
+def test_unmatched_keeps_the_playbook_hint_for_the_owner() -> None:
+    # The list of things the kernel *can* do is the useful part of a
+    # refusal-to-guess, so it must survive classification.
+    outcome = protocol.classify_outcome(tool_response(UNMATCHED_PAYLOAD, is_error=True))
+    assert "sys.uptime" in outcome.hint
